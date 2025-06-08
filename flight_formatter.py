@@ -4,12 +4,7 @@ from datetime import datetime, time
 import io
 from openpyxl.utils import get_column_letter
 
-# Minimalist Title
-st.markdown("""
-    <h2 style='text-align: center; color: #333;'>Portal Data Formatter</h2>
-    <p style='text-align: center; color: #666;'>Upload your daily operations report and get it formatted instantly.</p>
-    <hr style='border: 0.5px solid #DDD;'>
-""", unsafe_allow_html=True)
+st.title("✈️ Portal Data Formatter")
 
 def format_datetime(date, raw_time):
     if pd.isna(date) or pd.isna(raw_time):
@@ -100,9 +95,8 @@ uploaded_file = st.file_uploader("Upload Daily Operations Report", type=["xlsx"]
 if uploaded_file:
     st.success("✅ File uploaded successfully!")
     result_df, report_date = process_file(uploaded_file)
-    st.dataframe(result_df, use_container_width=True)
+    st.dataframe(result_df)
 
-    # Generate file name from date
     if report_date:
         try:
             date_obj = pd.to_datetime(report_date)
@@ -114,12 +108,7 @@ if uploaded_file:
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        result_df.to_excel(writer, index=False, sheet_name="Sheet1")
-        worksheet = writer.book['Sheet1']
-        for i, col in enumerate(result_df.columns, 1):
-            max_length = max(result_df[col].astype(str).map(len).max(), len(str(col))) + 2
-            worksheet.column_dimensions[get_column_letter(i)].width = max_length
-
+        result_df.to_excel(writer, index=False)
     st.download_button("📥 Download Formatted Excel", data=output.getvalue(), file_name=download_filename)
 
 
