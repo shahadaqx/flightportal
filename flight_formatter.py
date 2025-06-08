@@ -2,8 +2,15 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, time
 import io
+from openpyxl.utils import get_column_letter
+from streamlit_extras.let_it_rain import rain
+from streamlit_extras.colored_header import colored_header
 
-st.title("✈️ Flight Data Formatter")
+# Title with animation
+title_placeholder = st.empty()
+title_placeholder.markdown("<h1 style='text-align: center; color: #4B9CD3;'>✈️ Portal Data Formatter</h1>", unsafe_allow_html=True)
+rain(emoji="✈️", font_size=24, falling_speed=5, animation_length="infinite")
+colored_header(label="Upload your daily report to format it with ease.", description="Minimal, clean, and automatic.", color_name="light-blue-70")
 
 def format_datetime(date, raw_time):
     if pd.isna(date) or pd.isna(raw_time):
@@ -20,11 +27,10 @@ def format_datetime(date, raw_time):
         parsed_time = raw_time
     else:
         return None
-    parsed_time = parsed_time.replace(second=0)  # force seconds to 0
+    parsed_time = parsed_time.replace(second=0)
     return datetime.combine(pd.to_datetime(date).date(), parsed_time).strftime("%m/%d/%Y %H:%M:%S")
 
 def extract_services(row):
-    # Dynamically include all columns that have a tick mark (√)
     services = []
     for col in row.index:
         if isinstance(col, str) and str(row[col]).strip() == '√':
@@ -56,14 +62,10 @@ def categorize(row):
 def process_file(uploaded_file):
     df = pd.read_excel(uploaded_file, sheet_name='Daily Operations Report', header=4)
     df.dropna(how='all', inplace=True)
-
     df.rename(columns=lambda x: x.strip() if isinstance(x, str) else x, inplace=True)
     df.rename(columns={'REG.': 'REG', 'TECH.\nSUPT': 'TECH. SUPT'}, inplace=True)
 
     df['STA.'] = df.apply(lambda row: format_datetime(row['DATE'], row['STA']), axis=1)
-    df['ATA.'] = df.apply(lambda row: format_datetime(row['DATE'], row['ATA']), axis=1)
-    df['STD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('STD')), axis=1)
-    df['ATD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('ATD')), axis=1)
     df['ATA.'] = df.apply(lambda row: format_datetime(row['DATE'], row['ATA']), axis=1)
     df['STD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('STD')), axis=1)
     df['ATD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('ATD')), axis=1)
@@ -72,7 +74,6 @@ def process_file(uploaded_file):
     df['Services'] = df.apply(extract_services, axis=1)
     df['Is Canceled'] = df['OTHER SERVICES/REMARKS'].str.contains('CANCELED', na=False, case=False)
     df['Category'] = df.apply(categorize, axis=1)
-
     df.sort_values(by=['Category', 'STA.'], inplace=True)
 
     final_df = pd.DataFrame({
@@ -93,17 +94,22 @@ def process_file(uploaded_file):
         'Remarks': '',
         'Comments': ''
     })
-
     return final_df
 
-uploaded_file = st.file_uploader("Upload Daily Operations Report", type=["xlsx"])
+uploaded_file = st.file_uploader("📂 Upload Daily Operations Report", type=["xlsx"])
 
 if uploaded_file:
     st.success("✅ File uploaded successfully!")
     result_df = process_file(uploaded_file)
-    st.dataframe(result_df)
+    st.dataframe(result_df, use_container_width=True)
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        result_df.to_excel(writer, index=False)
+        result_df.to_excel(writer, index=False, sheet_name="Sheet1")
+        worksheet = writer.book['Sheet1']
+        for i, col in enumerate(result_df.columns, 1):
+            max_length = max(result_df[col].astype(str).map(len).max(), len(str(col))) + 2
+            worksheet.column_dimensions[get_column_letter(i)].width = max_length
+
     st.download_button("📥 Download Formatted Excel", data=output.getvalue(), file_name="Formatted_Flight_Data.xlsx")
+
