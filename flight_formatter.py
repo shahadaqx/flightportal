@@ -93,14 +93,24 @@ def process_file(uploaded_file):
         'Remarks': '',
         'Comments': ''
     })
-    return final_df
+    return final_df, df['DATE'].iloc[0] if not df.empty else None
 
 uploaded_file = st.file_uploader("Upload Daily Operations Report", type=["xlsx"])
 
 if uploaded_file:
     st.success("✅ File uploaded successfully!")
-    result_df = process_file(uploaded_file)
+    result_df, report_date = process_file(uploaded_file)
     st.dataframe(result_df, use_container_width=True)
+
+    # Generate file name from date
+    if report_date:
+        try:
+            date_obj = pd.to_datetime(report_date)
+            download_filename = date_obj.strftime("%d%b%Y").upper() + ".xlsx"
+        except Exception:
+            download_filename = "Formatted_Flight_Data.xlsx"
+    else:
+        download_filename = "Formatted_Flight_Data.xlsx"
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -110,6 +120,7 @@ if uploaded_file:
             max_length = max(result_df[col].astype(str).map(len).max(), len(str(col))) + 2
             worksheet.column_dimensions[get_column_letter(i)].width = max_length
 
-    st.download_button("📥 Download Formatted Excel", data=output.getvalue(), file_name="Formatted_Flight_Data.xlsx")
+    st.download_button("📥 Download Formatted Excel", data=output.getvalue(), file_name=download_filename)
+
 
 
