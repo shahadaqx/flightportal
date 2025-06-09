@@ -32,7 +32,7 @@ def extract_services(row):
 
     remark = str(row.get('OTHER SERVICES/REMARKS', '')).upper()
     if 'ON CALL - NEEDED ENGINEER SUPPORT' in remark:
-        services.append(', On Call')
+        services.append('On Call')
     elif 'CANCELED WITHOUT NOTICE' in remark:
         services.append('Cancelled Flight')
     elif 'ON CALL' in remark:
