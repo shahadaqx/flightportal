@@ -40,7 +40,16 @@ def extract_services(row):
     elif 'ON CALL' in remark:
         services.append('Per landing')
 
-    return ', '.join(services) if services else None
+    corrected_services = []
+    for service in services:
+        if service == 'TECH. SUPT':
+            corrected_services.append('TECH SUPPORT')
+        elif service == 'HEAD SET':
+            corrected_services.append('HEADSET')
+        else:
+            corrected_services.append(service)
+
+    return ', '.join(corrected_services) if corrected_services else None
 
 def categorize(row):
     remark = str(row.get('OTHER SERVICES/REMARKS', '')).upper()
@@ -74,12 +83,10 @@ def process_file(uploaded_file):
     df['STD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('STD')), axis=1)
     df['ATD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('ATD')), axis=1)
 
-    # Set ATA = STA and ATD = STD for canceled flights
     canceled_mask = df['OTHER SERVICES/REMARKS'].str.contains('CANCELED|CANCELLED', case=False, na=False)
     df.loc[canceled_mask, 'ATA.'] = df.loc[canceled_mask, 'STA.']
     df.loc[canceled_mask, 'ATD.'] = df.loc[canceled_mask, 'STD.']
 
-    # Adjust Customer field: DHX flights → XLR
     df['Customer'] = df['FLT NO.'].astype(str).str.strip().apply(lambda x: 'XLR' if x.startswith('DHX') else x[:2])
 
     df['Services'] = df.apply(extract_services, axis=1)
@@ -142,6 +149,7 @@ if uploaded_file:
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         result_df.to_excel(writer, index=False)
     st.download_button("📥 Download Formatted Excel", data=output.getvalue(), file_name=download_filename)
+
 
     
 
