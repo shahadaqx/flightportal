@@ -14,7 +14,7 @@ def format_datetime(date, raw_time):
             parsed_time = datetime.strptime(raw_time, "%H:%M").time()
         except ValueError:
             try:
-                parsed_time = datetime.strptime(raw_time, "%H:%M:%S").time()
+                parsed_time = datetime.strptime(raw_time, "%H:%M").time()
             except ValueError:
                 return None
     elif isinstance(raw_time, time):
@@ -22,7 +22,7 @@ def format_datetime(date, raw_time):
     else:
         return None
     parsed_time = parsed_time.replace(second=0)
-    return datetime.combine(pd.to_datetime(date).date(), parsed_time).strftime("%m/%d/%Y %H:%M:%S")
+    return datetime.combine(pd.to_datetime(date).date(), parsed_time).strftime("%m/%d/%Y %H:%M")
 
 def extract_services(row):
     services = []
@@ -32,20 +32,20 @@ def extract_services(row):
 
     remark = str(row.get('OTHER SERVICES/REMARKS', '')).upper()
     if 'ON CALL - NEEDED ENGINEER SUPPORT' in remark:
-        services.append('On call - needed engineer support')
+        services.append('On call - Needed Engineer Support')
     elif 'CANCELED WITHOUT NOTICE' in remark or 'CANCELLED WITHOUT NOTICE' in remark:
         services.append('Canceled without notice')
     elif 'CANCELED' in remark or 'CANCELLED' in remark:
         services.append('Canceled')
     elif 'ON CALL' in remark:
-        services.append('Per landing')
+        services.append('Per Landing')
 
     corrected_services = []
     for service in services:
         if service == 'TECH. SUPT':
             corrected_services.append('TECH SUPPORT')
         elif service == 'HEAD SET':
-            corrected_services.append('HEADSET')
+            corrected_services.append('Headset')
         else:
             corrected_services.append(service)
 
