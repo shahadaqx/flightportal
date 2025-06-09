@@ -35,6 +35,12 @@ def extract_services(row):
         services.append('On Call')
     elif 'CANCELED WITHOUT NOTICE' in remark:
         services.append('Cancelled Flight')
+    elif 'CANCELED' in remark:
+        services.append('Cancelled Flight')
+    elif 'CANCELLED WITHOUT NOTICE' in remark:
+        services.append('Cancelled Flight')
+    elif 'CANCELLED' in remark:
+        services.append('Cancelled Flight')
     elif 'ON CALL' in remark:
         services.append('Per Landing')
 
