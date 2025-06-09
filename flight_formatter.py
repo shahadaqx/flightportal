@@ -59,17 +59,25 @@ def process_file(uploaded_file):
     df = pd.read_excel(uploaded_file, sheet_name='Daily Operations Report', header=4)
     df.dropna(how='all', inplace=True)
     df.rename(columns=lambda x: x.strip() if isinstance(x, str) else x, inplace=True)
-    df.rename(columns={'REG.': 'REG', 'TECH.\nSUPT': 'TECH. SUPT'}, inplace=True)
+    df.rename(columns={
+        'REG.': 'REG',
+        'TECH.\nSUPT': 'TECH. SUPT',
+        'TECH. SUPT': 'TECH SUPPORT',
+        'HEAD SET': 'HEADSET',
+        'TRANSIT': 'TRANSIT',
+        'WKLY CK': 'WKLY CK',
+        'DAILY CK': 'DAILY CK'
+    }, inplace=True)
 
     df['STA.'] = df.apply(lambda row: format_datetime(row['DATE'], row['STA']), axis=1)
     df['ATA.'] = df.apply(lambda row: format_datetime(row['DATE'], row['ATA']), axis=1)
     df['STD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('STD')), axis=1)
     df['ATD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('ATD')), axis=1)
 
-    # Set STA = ATA and STD = ATD for canceled flights
+    # Set ATA = STA and ATD = STD for canceled flights
     canceled_mask = df['OTHER SERVICES/REMARKS'].str.contains('CANCELED|CANCELLED', case=False, na=False)
-    df.loc[canceled_mask, 'STA.'] = df.loc[canceled_mask, 'ATA.']
-    df.loc[canceled_mask, 'STD.'] = df.loc[canceled_mask, 'ATD.']
+    df.loc[canceled_mask, 'ATA.'] = df.loc[canceled_mask, 'STA.']
+    df.loc[canceled_mask, 'ATD.'] = df.loc[canceled_mask, 'STD.']
 
     # Adjust Customer field: DHX flights → XLR
     df['Customer'] = df['FLT NO.'].astype(str).str.strip().apply(lambda x: 'XLR' if x.startswith('DHX') else x[:2])
@@ -79,24 +87,39 @@ def process_file(uploaded_file):
     df['Category'] = df.apply(categorize, axis=1)
     df.sort_values(by=['Category', 'STA.'], inplace=True)
 
-    final_df = pd.DataFrame({
-        'WO#': df['W/O'],
-        'Station': 'KKIA',
-        'Customer': df['Customer'],
-        'Flight No.': df['FLT NO.'],
-        'Registration Code': df['REG'],
-        'Aircraft': df['A/C TYPES'],
-        'Date': pd.to_datetime(df['DATE']).dt.strftime('%m/%d/%Y'),
-        'STA.': df['STA.'],
-        'ATA.': df['ATA.'],
-        'STD.': df['STD.'],
-        'ATD.': df['ATD.'],
-        'Is Canceled': df['Is Canceled'],
-        'Services': df['Services'],
-        'Employees': df[['ENGR', 'TECH']].apply(lambda row: str(int(row['ENGR'])) if pd.notna(row['ENGR']) and str(row['ENGR']).replace('.', '', 1).isdigit() and (pd.isna(row['TECH']) or not str(row['TECH']).replace('.', '', 1).isdigit()) else str(int(row['TECH'])) if pd.notna(row['TECH']) and str(row['TECH']).replace('.', '', 1).isdigit() and (pd.isna(row['ENGR']) or not str(row['ENGR']).replace('.', '', 1).isdigit()) else ', '.join(filter(None, [str(int(row['ENGR'])) if pd.notna(row['ENGR']) and str(row['ENGR']).replace('.', '', 1).isdigit() else '', str(int(row['TECH'])) if pd.notna(row['TECH']) and str(row['TECH']).replace('.', '', 1).isdigit() else ''])), axis=1),
-        'Remarks': '',
-        'Comments': ''
-    })
+    normal_rows = []
+    outliers = []
+    for _, row in df.iterrows():
+        try:
+            formatted_row = {
+                'WO#': row['W/O'],
+                'Station': 'KKIA',
+                'Customer': row['Customer'],
+                'Flight No.': row['FLT NO.'],
+                'Registration Code': row['REG'],
+                'Aircraft': row['A/C TYPES'],
+                'Date': pd.to_datetime(row['DATE']).strftime('%m/%d/%Y'),
+                'STA.': row['STA.'],
+                'ATA.': row['ATA.'],
+                'STD.': row['STD.'],
+                'ATD.': row['ATD.'],
+                'Is Canceled': row['Is Canceled'],
+                'Services': row['Services'],
+                'Employees': ', '.join(filter(None, [
+                    str(int(row['ENGR'])) if pd.notna(row['ENGR']) and str(row['ENGR']).replace('.', '', 1).isdigit() else '',
+                    str(int(row['TECH'])) if pd.notna(row['TECH']) and str(row['TECH']).replace('.', '', 1).isdigit() else ''
+                ])),
+                'Remarks': '',
+                'Comments': ''
+            }
+            normal_rows.append(formatted_row)
+        except Exception:
+            outliers.append(row)
+
+    final_df = pd.DataFrame(normal_rows)
+    if outliers:
+        final_df = pd.concat([final_df, pd.DataFrame([{}]), pd.DataFrame(outliers)], ignore_index=True)
+
     return final_df, df['DATE'].iloc[0] if not df.empty else None
 
 uploaded_file = st.file_uploader("Upload Daily Operations Report", type=["xlsx"])
