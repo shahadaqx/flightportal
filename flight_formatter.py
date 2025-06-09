@@ -28,7 +28,7 @@ def extract_services(row):
     services = []
     for col in row.index:
         if isinstance(col, str) and str(row[col]).strip() == '√':
-            services.append(col.strip().title())
+            services.append(col.strip())
 
     remark = str(row.get('OTHER SERVICES/REMARKS', '')).upper()
     if 'ON CALL - NEEDED ENGINEER SUPPORT' in remark:
@@ -142,6 +142,8 @@ if uploaded_file:
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         result_df.to_excel(writer, index=False)
     st.download_button("📥 Download Formatted Excel", data=output.getvalue(), file_name=download_filename)
+
+    
 
 
 
