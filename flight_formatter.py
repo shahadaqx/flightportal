@@ -14,7 +14,7 @@ def format_datetime(date, raw_time):
             parsed_time = datetime.strptime(raw_time, "%H:%M").time()
         except ValueError:
             try:
-                parsed_time = datetime.strptime(raw_time, "%H:%M").time()
+                parsed_time = datetime.strptime(raw_time, "%H:%M:%S").time()
             except ValueError:
                 return None
     elif isinstance(raw_time, time):
@@ -22,7 +22,7 @@ def format_datetime(date, raw_time):
     else:
         return None
     parsed_time = parsed_time.replace(second=0)
-    return datetime.combine(pd.to_datetime(date).date(), parsed_time).strftime("%m/%d/%Y %H:%M")
+    return datetime.combine(pd.to_datetime(date).date(), parsed_time).strftime("%m/%d/%Y %H:%M:%S")
 
 def extract_services(row):
     services = []
@@ -32,17 +32,13 @@ def extract_services(row):
 
     remark = str(row.get('OTHER SERVICES/REMARKS', '')).upper()
     if 'ON CALL - NEEDED ENGINEER SUPPORT' in remark:
-        services.append('On Call')
-    elif 'CANCELED WITHOUT NOTICE' in remark:
-        services.append('Cancelled Flight')
-    elif 'CANCELED' in remark:
-        services.append('Cancelled Flight')
-    elif 'CANCELLED WITHOUT NOTICE' in remark:
-        services.append('Cancelled Flight')
-    elif 'CANCELLED' in remark:
-        services.append('Cancelled Flight')
+        services.append('On call - needed engineer support')
+    elif 'CANCELED WITHOUT NOTICE' in remark or 'CANCELLED WITHOUT NOTICE' in remark:
+        services.append('Canceled without notice')
+    elif 'CANCELED' in remark or 'CANCELLED' in remark:
+        services.append('Canceled')
     elif 'ON CALL' in remark:
-        services.append('Per Landing')
+        services.append('Per landing')
 
     return ', '.join(services) if services else None
 
@@ -52,7 +48,7 @@ def categorize(row):
         return '1_TRANSIT'
     elif 'ON CALL - NEEDED ENGINEER SUPPORT' in remark:
         return '2_ONCALL_ENGINEER'
-    elif 'CANCELED WITHOUT NOTICE' in remark:
+    elif 'CANCELED WITHOUT NOTICE' in remark or 'CANCELLED WITHOUT NOTICE' in remark:
         return '3_CANCELED'
     elif 'ON CALL' in remark:
         return '4_ONCALL_RECORDED'
@@ -70,9 +66,16 @@ def process_file(uploaded_file):
     df['STD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('STD')), axis=1)
     df['ATD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('ATD')), axis=1)
 
-    df['Customer'] = df['FLT NO.'].astype(str).str.strip().str[:2]
+    # Set STA = ATA and STD = ATD for canceled flights
+    canceled_mask = df['OTHER SERVICES/REMARKS'].str.contains('CANCELED|CANCELLED', case=False, na=False)
+    df.loc[canceled_mask, 'STA.'] = df.loc[canceled_mask, 'ATA.']
+    df.loc[canceled_mask, 'STD.'] = df.loc[canceled_mask, 'ATD.']
+
+    # Adjust Customer field: DHX flights → XLR
+    df['Customer'] = df['FLT NO.'].astype(str).str.strip().apply(lambda x: 'XLR' if x.startswith('DHX') else x[:2])
+
     df['Services'] = df.apply(extract_services, axis=1)
-    df['Is Canceled'] = df['OTHER SERVICES/REMARKS'].str.contains('CANCELED', na=False, case=False)
+    df['Is Canceled'] = df['OTHER SERVICES/REMARKS'].str.contains('CANCELED|CANCELLED', na=False, case=False)
     df['Category'] = df.apply(categorize, axis=1)
     df.sort_values(by=['Category', 'STA.'], inplace=True)
 
