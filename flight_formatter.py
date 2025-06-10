@@ -83,6 +83,20 @@ def process_file(uploaded_file):
     df['STD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('STD')), axis=1)
     df['ATD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('ATD')), axis=1)
 
+    # Fix STD and ATD if they are earlier than STA or ATA respectively
+    df['STA_dt'] = pd.to_datetime(df['STA.'], errors='coerce')
+    df['STD_dt'] = pd.to_datetime(df['STD.'], errors='coerce')
+    df['ATA_dt'] = pd.to_datetime(df['ATA.'], errors='coerce')
+    df['ATD_dt'] = pd.to_datetime(df['ATD.'], errors='coerce')
+
+    df.loc[df['STD_dt'] < df['STA_dt'], 'STD_dt'] += pd.Timedelta(days=1)
+    df.loc[df['ATD_dt'] < df['ATA_dt'], 'ATD_dt'] += pd.Timedelta(days=1)
+
+    df['STD.'] = df['STD_dt'].dt.strftime('%m/%d/%Y %H:%M')
+    df['ATD.'] = df['ATD_dt'].dt.strftime('%m/%d/%Y %H:%M')
+
+    df.drop(columns=['STA_dt', 'STD_dt', 'ATA_dt', 'ATD_dt'], inplace=True)
+
     canceled_mask = df['OTHER SERVICES/REMARKS'].str.contains('CANCELED|CANCELLED', case=False, na=False)
     df.loc[canceled_mask, 'ATA.'] = df.loc[canceled_mask, 'STA.']
     df.loc[canceled_mask, 'ATD.'] = df.loc[canceled_mask, 'STD.']
@@ -149,9 +163,3 @@ if uploaded_file:
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         result_df.to_excel(writer, index=False)
     st.download_button("📥 Download Formatted Excel", data=output.getvalue(), file_name=download_filename)
-
-
-    
-
-
-
