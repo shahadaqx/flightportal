@@ -4,7 +4,6 @@ from datetime import datetime, time
 import io
 from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
-from openpyxl.styles import numbers
 
 st.set_page_config(page_title="Flight Formatter", layout="wide")
 st.title("✈️ Portal Data Formatter (Final Version)")
@@ -100,7 +99,7 @@ def process_file(uploaded_file):
             'Flight No.': row['FLT NO.'],
             'Registration Code': row['REG'],
             'Aircraft': row['A/C TYPES'],
-            'Date': pd.to_datetime(row['DATE']).date(),  # ✅ ONLY DATE (no time)
+            'Date': pd.to_datetime(row['DATE']).date(),  # ✅ Only date (no time)
             'STA.': row['STA.'],
             'ATA.': row['ATA.'],
             'STD.': row['STD'],
@@ -133,22 +132,22 @@ if uploaded_file:
             for cell in row:
                 cell.value = None
 
-        # Insert data + format cells
+        # Insert data + apply date/time formatting
         for r_idx, row in enumerate(dataframe_to_rows(result_df, index=False, header=False), start=2):
-    for c_idx, value in enumerate(row, start=1):
-        cell = ws.cell(row=r_idx, column=c_idx, value=value)
-        if isinstance(value, datetime):
-            if value.time() == datetime.min.time():
-                cell.number_format = 'MM/DD/YYYY'  # 🟢 Only date
-            else:
-                cell.number_format = 'MM/DD/YYYY HH:MM:SS'  # 🟢 Full datetime
-        elif isinstance(value, pd.Timestamp):
-            if value.time() == datetime.min.time():
-                cell.number_format = 'MM/DD/YYYY'
-            else:
-                cell.number_format = 'MM/DD/YYYY HH:MM:SS'
+            for c_idx, value in enumerate(row, start=1):
+                cell = ws.cell(row=r_idx, column=c_idx, value=value)
+                if isinstance(value, datetime):
+                    if value.time() == datetime.min.time():
+                        cell.number_format = 'MM/DD/YYYY'  # Just date
+                    else:
+                        cell.number_format = 'MM/DD/YYYY HH:MM:SS'  # Full datetime
+                elif isinstance(value, pd.Timestamp):
+                    if value.time() == datetime.min.time():
+                        cell.number_format = 'MM/DD/YYYY'
+                    else:
+                        cell.number_format = 'MM/DD/YYYY HH:MM:SS'
 
-        # Save file
+        # Save to BytesIO
         output = io.BytesIO()
         wb.save(output)
 
