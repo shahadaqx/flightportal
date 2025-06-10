@@ -5,46 +5,41 @@ import io
 
 st.title("✈️ Portal Data Formatter")
 
-def format_datetime(date, raw_time):
-    if pd.isna(date) or pd.isna(raw_time):
+def format_time(raw_time):
+    if pd.isna(raw_time):
         return None
     if isinstance(raw_time, str):
         try:
-            parsed_time = datetime.strptime(raw_time.strip(), "%H:%M").time()
+            return datetime.strptime(raw_time.strip(), "%H:%M").time()
         except ValueError:
             return None
     elif isinstance(raw_time, time):
-        parsed_time = raw_time
-    else:
-        return None
-    parsed_time = parsed_time.replace(second=0)
-    return datetime.combine(pd.to_datetime(date).date(), parsed_time)
+        return raw_time
+    return None
 
-def adjust_ata_atd_dates(series, base_date):
-    adjusted = []
-    day_increment = 0
-    last_time = None
-
-    for val in series:
-        if pd.isna(val):
-            adjusted.append(None)
+def adjust_times_with_cycle(times, base_date):
+    adjusted_datetimes = []
+    day_offset = 0
+    previous_time = None
+    for t in times:
+        if pd.isna(t):
+            adjusted_datetimes.append(None)
             continue
-        current_time = val.time()
-        if last_time and current_time < last_time:
-            # Passed midnight, increment date ONCE
-            day_increment = 1
-        adjusted_date = val + timedelta(days=day_increment)
-        adjusted.append(adjusted_date)
-        last_time = current_time
+        if previous_time and t < previous_time:
+            day_offset += 1
+        adjusted_datetime = datetime.combine(base_date + timedelta(days=day_offset), t)
+        adjusted_datetimes.append(adjusted_datetime)
+        previous_time = t
+    return adjusted_datetimes
 
-    return adjusted
+def format_datetime_string(dt):
+    return dt.strftime('%m/%d/%Y %H:%M') if pd.notna(dt) else None
 
 def extract_services(row):
     services = []
     for col in row.index:
         if isinstance(col, str) and str(row[col]).strip() == '√':
             services.append(col.strip())
-
     remark = str(row.get('OTHER SERVICES/REMARKS', '')).upper()
     if 'ON CALL - NEEDED ENGINEER SUPPORT' in remark:
         services.append('On Call')
@@ -55,16 +50,15 @@ def extract_services(row):
     elif 'ON CALL' in remark:
         services.append('Per Landing')
 
-    corrected_services = []
+    corrected = []
     for service in services:
         if service == 'TECH. SUPT':
-            corrected_services.append('TECH SUPPORT')
+            corrected.append('TECH SUPPORT')
         elif service == 'HEAD SET':
-            corrected_services.append('Headset')
+            corrected.append('Headset')
         else:
-            corrected_services.append(service)
-
-    return ', '.join(corrected_services) if corrected_services else None
+            corrected.append(service)
+    return ', '.join(corrected) if corrected else None
 
 def categorize(row):
     remark = str(row.get('OTHER SERVICES/REMARKS', '')).upper()
@@ -83,6 +77,7 @@ def process_file(uploaded_file):
     df = pd.read_excel(uploaded_file, sheet_name='Daily Operations Report', header=4)
     df.dropna(how='all', inplace=True)
     df.rename(columns=lambda x: x.strip() if isinstance(x, str) else x, inplace=True)
+
     df.rename(columns={
         'REG.': 'REG',
         'TECH.\nSUPT': 'TECH. SUPT',
@@ -93,29 +88,28 @@ def process_file(uploaded_file):
         'DAILY CK': 'Daily Check'
     }, inplace=True)
 
-    df['STA_dt'] = df.apply(lambda row: format_datetime(row['DATE'], row['STA']), axis=1)
-    df['ATA_dt'] = df.apply(lambda row: format_datetime(row['DATE'], row['ATA']), axis=1)
-    df['STD_dt'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('STD')), axis=1)
-    df['ATD_dt'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('ATD')), axis=1)
+    base_date = pd.to_datetime(df['DATE'].iloc[0]).date()
 
-    # Adjust ATA/ATD with one-cycle date logic
-    if not df.empty:
-        base_date = pd.to_datetime(df['DATE'].iloc[0])
-        df['ATA_dt'] = adjust_ata_atd_dates(df['ATA_dt'], base_date)
-        df['ATD_dt'] = adjust_ata_atd_dates(df['ATD_dt'], base_date)
+    # Convert all time columns to actual time objects
+    df['STA_time'] = df['STA'].apply(format_time)
+    df['ATA_time'] = df['ATA'].apply(format_time)
+    df['STD_time'] = df['STD'].apply(format_time)
+    df['ATD_time'] = df['ATD'].apply(format_time)
 
-    # Ensure STD is not earlier than STA, and ATD not earlier than ATA
+    # Adjust ATA and ATD across time cycles
+    df['Adjusted_ATA'] = adjust_times_with_cycle(df['ATA_time'], base_date)
+    df['Adjusted_ATD'] = adjust_times_with_cycle(df['ATD_time'], base_date)
+
+    # STD must be >= STA
+    df['STA_dt'] = [datetime.combine(base_date, t) if pd.notna(t) else None for t in df['STA_time']]
+    df['STD_dt'] = [datetime.combine(base_date, t) if pd.notna(t) else None for t in df['STD_time']]
     df.loc[df['STD_dt'] < df['STA_dt'], 'STD_dt'] += timedelta(days=1)
-    df.loc[df['ATD_dt'] < df['ATA_dt'], 'ATD_dt'] += timedelta(days=1)
 
-    # Format back to strings
-    df['STA.'] = df['STA_dt'].dt.strftime('%m/%d/%Y %H:%M')
-    df['ATA.'] = df['ATA_dt'].dt.strftime('%m/%d/%Y %H:%M')
-    df['STD.'] = df['STD_dt'].dt.strftime('%m/%d/%Y %H:%M')
-    df['ATD.'] = df['ATD_dt'].dt.strftime('%m/%d/%Y %H:%M')
-
-    # Cleanup
-    df.drop(columns=['STA_dt', 'STD_dt', 'ATA_dt', 'ATD_dt'], inplace=True)
+    # Format all datetimes
+    df['STA.'] = df['STA_dt'].apply(format_datetime_string)
+    df['STD.'] = df['STD_dt'].apply(format_datetime_string)
+    df['ATA.'] = df['Adjusted_ATA'].apply(format_datetime_string)
+    df['ATD.'] = df['Adjusted_ATD'].apply(format_datetime_string)
 
     canceled_mask = df['OTHER SERVICES/REMARKS'].str.contains('CANCELED|CANCELLED', case=False, na=False)
     df.loc[canceled_mask, 'ATA.'] = df.loc[canceled_mask, 'STA.']
@@ -162,6 +156,7 @@ def process_file(uploaded_file):
 
     return final_df, df['DATE'].iloc[0] if not df.empty else None
 
+# === Streamlit UI ===
 uploaded_file = st.file_uploader("Upload Daily Operations Report", type=["xlsx"])
 
 if uploaded_file:
