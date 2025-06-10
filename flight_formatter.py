@@ -2,10 +2,15 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, time
 import io
+from openpyxl import load_workbook
+from openpyxl.utils.dataframe import dataframe_to_rows
 
-st.title("✈️ Portal Data Formatter (with Final Rollover Logic)")
+st.set_page_config(page_title="Flight Data Formatter", layout="wide")
+st.title("✈️ Portal Data Formatter (Streamlit Cloud Edition)")
 
-# Final smart rollover logic — STA late night & raw_time early = next day
+TEMPLATE_FILE = "00. WorkOrdersTemplate.xlsx"
+
+# Smart rollover logic: Only if STA is ≥ 18:00 and actual time is < 03:00
 def format_datetime(date, raw_time, base_time=None):
     if pd.isna(date) or pd.isna(raw_time):
         return None
@@ -23,9 +28,8 @@ def format_datetime(date, raw_time, base_time=None):
         raw_time_obj = to_time(raw_time)
         base_time_obj = to_time(base_time)
 
-        if base_time_obj:
-            if base_time_obj >= time(18, 0) and raw_time_obj < time(3, 0):
-                base_date += pd.Timedelta(days=1)
+        if base_time_obj and base_time_obj >= time(18, 0) and raw_time_obj < time(3, 0):
+            base_date += pd.Timedelta(days=1)
 
         full_datetime = datetime.combine(base_date, raw_time_obj.replace(second=0))
         return full_datetime.strftime("%m/%d/%Y %H:%M:%S")
@@ -33,12 +37,9 @@ def format_datetime(date, raw_time, base_time=None):
         return None
 
 def extract_services(row):
-    services = []
-    for col in row.index:
-        if isinstance(col, str) and str(row[col]).strip() == '√':
-            services.append(col.strip())
-
+    services = [col for col in row.index if isinstance(col, str) and str(row[col]).strip() == '√']
     remark = str(row.get('OTHER SERVICES/REMARKS', '')).upper()
+
     if 'ON CALL - NEEDED ENGINEER SUPPORT' in remark:
         services.append('On Call')
     elif 'CANCELED WITHOUT NOTICE' in remark or 'CANCELLED WITHOUT NOTICE' in remark:
@@ -48,16 +49,7 @@ def extract_services(row):
     elif 'ON CALL' in remark:
         services.append('Per Landing')
 
-    corrected_services = []
-    for service in services:
-        if service == 'TECH. SUPT':
-            corrected_services.append('TECH SUPPORT')
-        elif service == 'HEAD SET':
-            corrected_services.append('Headset')
-        else:
-            corrected_services.append(service)
-
-    return ', '.join(corrected_services) if corrected_services else None
+    return ', '.join([s.replace('TECH. SUPT', 'TECH SUPPORT').replace('HEAD SET', 'Headset') for s in services])
 
 def categorize(row):
     remark = str(row.get('OTHER SERVICES/REMARKS', '')).upper()
@@ -69,8 +61,7 @@ def categorize(row):
         return '3_CANCELED'
     elif 'ON CALL' in remark:
         return '4_ONCALL_RECORDED'
-    else:
-        return '5_OTHER'
+    return '5_OTHER'
 
 def process_file(uploaded_file):
     df = pd.read_excel(uploaded_file, sheet_name='Daily Operations Report', header=4)
@@ -101,58 +92,67 @@ def process_file(uploaded_file):
     df['Category'] = df.apply(categorize, axis=1)
     df.sort_values(by=['Category', 'STA.'], inplace=True)
 
-    normal_rows = []
-    outliers = []
+    rows = []
     for _, row in df.iterrows():
-        try:
-            formatted_row = {
-                'WO#': row['W/O'],
-                'Station': 'KKIA',
-                'Customer': row['Customer'],
-                'Flight No.': row['FLT NO.'],
-                'Registration Code': row['REG'],
-                'Aircraft': row['A/C TYPES'],
-                'Date': pd.to_datetime(row['DATE']).strftime('%m/%d/%Y'),
-                'STA.': row['STA.'],
-                'ATA.': row['ATA.'],
-                'STD.': row['STD.'],
-                'ATD.': row['ATD.'],
-                'Is Canceled': row['Is Canceled'],
-                'Services': row['Services'],
-                'Employees': ', '.join(filter(None, [
-                    str(int(row['ENGR'])) if pd.notna(row['ENGR']) and str(row['ENGR']).replace('.', '', 1).isdigit() else '',
-                    str(int(row['TECH'])) if pd.notna(row['TECH']) and str(row['TECH']).replace('.', '', 1).isdigit() else ''
-                ])),
-                'Remarks': '',
-                'Comments': ''
-            }
-            normal_rows.append(formatted_row)
-        except Exception:
-            outliers.append(row)
+        rows.append({
+            'WO#': row.get('W/O'),
+            'Station': 'KKIA',
+            'Customer': row['Customer'],
+            'Flight No.': row['FLT NO.'],
+            'Registration Code': row['REG'],
+            'Aircraft': row['A/C TYPES'],
+            'Date': pd.to_datetime(row['DATE']).strftime('%m/%d/%Y'),
+            'STA.': row['STA.'],
+            'ATA.': row['ATA.'],
+            'STD.': row['STD.'],
+            'ATD.': row['ATD.'],
+            'Is Canceled': row['Is Canceled'],
+            'Services': row['Services'],
+            'Employees': ', '.join(filter(None, [
+                str(int(row['ENGR'])) if pd.notna(row['ENGR']) and str(row['ENGR']).replace('.', '', 1).isdigit() else '',
+                str(int(row['TECH'])) if pd.notna(row['TECH']) and str(row['TECH']).replace('.', '', 1).isdigit() else ''
+            ])),
+            'Remarks': '',
+            'Comments': ''
+        })
 
-    final_df = pd.DataFrame(normal_rows)
-    if outliers:
-        final_df = pd.concat([final_df, pd.DataFrame([{}]), pd.DataFrame(outliers)], ignore_index=True)
+    return pd.DataFrame(rows), df['DATE'].iloc[0] if not df.empty else None
 
-    return final_df, df['DATE'].iloc[0] if not df.empty else None
-
-uploaded_file = st.file_uploader("Upload Daily Operations Report", type=["xlsx"])
+uploaded_file = st.file_uploader("📤 Upload 'Daily Operations Report'", type=["xlsx"])
 
 if uploaded_file:
     st.success("✅ File uploaded successfully!")
     result_df, report_date = process_file(uploaded_file)
     st.dataframe(result_df)
 
-    if report_date:
-        try:
-            date_obj = pd.to_datetime(report_date)
-            download_filename = date_obj.strftime("%d%b%Y").upper() + ".xlsx"
-        except Exception:
-            download_filename = "Formatted_Flight_Data.xlsx"
-    else:
-        download_filename = "Formatted_Flight_Data.xlsx"
+    try:
+        wb = load_workbook(TEMPLATE_FILE)
+        ws = wb["Template"]
 
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        result_df.to_excel(writer, index=False)
-    st.download_button("📥 Download Formatted Excel", data=output.getvalue(), file_name=download_filename)
+        # Clear existing rows
+        for row in ws.iter_rows(min_row=2, max_row=1000):
+            for cell in row:
+                cell.value = None
+
+        # Insert data into template
+        for r_idx, row in enumerate(dataframe_to_rows(result_df, index=False, header=False), start=2):
+            for c_idx, value in enumerate(row, start=1):
+                ws.cell(row=r_idx, column=c_idx, value=value)
+
+        # Prepare download
+        output = io.BytesIO()
+        wb.save(output)
+
+        filename = (
+            pd.to_datetime(report_date).strftime("%d%b%Y").upper() + ".xlsx"
+            if report_date else "Formatted_WorkOrders.xlsx"
+        )
+
+        st.download_button(
+            "📥 Download Final Work Orders File",
+            data=output.getvalue(),
+            file_name=filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    except FileNotFoundError:
+        st.error("❌ Template file '00. WorkOrdersTemplate.xlsx' not found in this directory. Please include it in your GitHub repo.")
