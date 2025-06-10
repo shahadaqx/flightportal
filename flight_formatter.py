@@ -156,3 +156,4 @@ if uploaded_file:
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         result_df.to_excel(writer, index=False)
     st.download_button("📥 Download Formatted Excel", data=output.getvalue(), file_name=download_filename)
+
