@@ -11,10 +11,10 @@ def format_datetime(date, raw_time):
         return None
     if isinstance(raw_time, str):
         try:
-            parsed_time = datetime.strptime(raw_time, "%H:%M").time()
+            parsed_time = datetime.strptime(raw_time, "%H:%M:%S").time()
         except ValueError:
             try:
-                parsed_time = datetime.strptime(raw_time, "%H:%M").time()
+                parsed_time = datetime.strptime(raw_time, "%H:%M:%S").time()
             except ValueError:
                 return None
     elif isinstance(raw_time, time):
