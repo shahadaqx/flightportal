@@ -1,28 +1,41 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 import io
-from openpyxl.utils import get_column_letter
 
 st.title("✈️ Portal Data Formatter")
 
-def format_datetime(date, raw_time):
-    if pd.isna(date) or pd.isna(raw_time):
+def format_time(raw_time):
+    if pd.isna(raw_time):
         return None
     if isinstance(raw_time, str):
         try:
-            parsed_time = datetime.strptime(raw_time, "%H:%M").time()
+            return datetime.strptime(raw_time, "%H:%M").time()
         except ValueError:
-            try:
-                parsed_time = datetime.strptime(raw_time, "%H:%M").time()
-            except ValueError:
-                return None
+            return None
     elif isinstance(raw_time, time):
-        parsed_time = raw_time
-    else:
+        return raw_time
+    return None
+
+def format_datetime(date, raw_time):
+    parsed_time = format_time(raw_time)
+    if pd.isna(date) or parsed_time is None:
         return None
-    parsed_time = parsed_time.replace(second=0)
-    return datetime.combine(pd.to_datetime(date).date(), parsed_time).strftime("%m/%d/%Y %H:%M")
+    return datetime.combine(pd.to_datetime(date).date(), parsed_time)
+
+def apply_rollover(times):
+    corrected = []
+    prev = None
+    day_offset = 0
+    for t in times:
+        if pd.isna(t):
+            corrected.append(None)
+            continue
+        if prev and t < prev:
+            day_offset += 1
+        corrected.append(t + timedelta(days=day_offset))
+        prev = t
+    return corrected
 
 def extract_services(row):
     services = []
@@ -78,36 +91,38 @@ def process_file(uploaded_file):
         'DAILY CK': 'Daily Check'
     }, inplace=True)
 
-    df['STA.'] = df.apply(lambda row: format_datetime(row['DATE'], row['STA']), axis=1)
-    df['ATA.'] = df.apply(lambda row: format_datetime(row['DATE'], row['ATA']), axis=1)
-    df['STD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('STD')), axis=1)
-    df['ATD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('ATD')), axis=1)
+    # Convert all relevant times to datetime
+    df['STA_dt'] = df.apply(lambda row: format_datetime(row['DATE'], row['STA']), axis=1)
+    df['ATA_dt'] = df.apply(lambda row: format_datetime(row['DATE'], row['ATA']), axis=1)
+    df['STD_dt'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('STD')), axis=1)
+    df['ATD_dt'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('ATD')), axis=1)
 
-    # Fix STD and ATD if they are earlier than STA or ATA respectively
-    df['STA_dt'] = pd.to_datetime(df['STA.'], errors='coerce')
-    df['STD_dt'] = pd.to_datetime(df['STD.'], errors='coerce')
-    df['ATA_dt'] = pd.to_datetime(df['ATA.'], errors='coerce')
-    df['ATD_dt'] = pd.to_datetime(df['ATD.'], errors='coerce')
+    # Adjust STD if before STA and ATD if before ATA
+    df.loc[df['STD_dt'] < df['STA_dt'], 'STD_dt'] += timedelta(days=1)
+    df.loc[df['ATD_dt'] < df['ATA_dt'], 'ATD_dt'] += timedelta(days=1)
 
-    df.loc[df['STD_dt'] < df['STA_dt'], 'STD_dt'] += pd.Timedelta(days=1)
-    df.loc[df['ATD_dt'] < df['ATA_dt'], 'ATD_dt'] += pd.Timedelta(days=1)
+    # Apply rollover logic to ATA and ATD
+    df['ATA_dt'] = apply_rollover(df['ATA_dt'].tolist())
+    df['ATD_dt'] = apply_rollover(df['ATD_dt'].tolist())
 
+    # Convert datetime columns to string for export
+    df['STA.'] = df['STA_dt'].dt.strftime('%m/%d/%Y %H:%M')
+    df['ATA.'] = df['ATA_dt'].dt.strftime('%m/%d/%Y %H:%M')
     df['STD.'] = df['STD_dt'].dt.strftime('%m/%d/%Y %H:%M')
     df['ATD.'] = df['ATD_dt'].dt.strftime('%m/%d/%Y %H:%M')
-
-    df.drop(columns=['STA_dt', 'STD_dt', 'ATA_dt', 'ATD_dt'], inplace=True)
 
     canceled_mask = df['OTHER SERVICES/REMARKS'].str.contains('CANCELED|CANCELLED', case=False, na=False)
     df.loc[canceled_mask, 'ATA.'] = df.loc[canceled_mask, 'STA.']
     df.loc[canceled_mask, 'ATD.'] = df.loc[canceled_mask, 'STD.']
 
     df['Customer'] = df['FLT NO.'].astype(str).str.strip().apply(lambda x: 'XLR' if x.startswith('DHX') else x[:2])
-
     df['Services'] = df.apply(extract_services, axis=1)
-    df['Is Canceled'] = df['OTHER SERVICES/REMARKS'].str.contains('CANCELED|CANCELLED', na=False, case=False)
+    df['Is Canceled'] = canceled_mask
     df['Category'] = df.apply(categorize, axis=1)
-    df.sort_values(by=['Category', 'STA.'], inplace=True)
 
+    df.sort_values(by=['Category', 'STA_dt'], inplace=True)
+
+    # Construct final output
     normal_rows = []
     outliers = []
     for _, row in df.iterrows():
