@@ -3,37 +3,28 @@ import pandas as pd
 from datetime import datetime, time
 import io
 
-st.title("✈️ Portal Data Formatter (with Smart Rollover Logic)")
+st.title("✈️ Portal Data Formatter (with Final Rollover Logic)")
 
-# Smart rollover: only add a day if time is earlier than STA (base_time)
+# Final smart rollover logic — STA late night & raw_time early = next day
 def format_datetime(date, raw_time, base_time=None):
     if pd.isna(date) or pd.isna(raw_time):
         return None
     try:
         base_date = pd.to_datetime(date).date()
 
-        if isinstance(raw_time, str):
-            try:
-                raw_time_obj = datetime.strptime(raw_time.strip(), "%H:%M").time()
-            except ValueError:
-                return None
-        elif isinstance(raw_time, time):
-            raw_time_obj = raw_time
-        else:
-            return None
-
-        if base_time:
-            if isinstance(base_time, str):
-                try:
-                    base_time_obj = datetime.strptime(base_time.strip(), "%H:%M").time()
-                except ValueError:
-                    base_time_obj = None
-            elif isinstance(base_time, time):
-                base_time_obj = base_time
+        def to_time(val):
+            if isinstance(val, str):
+                return datetime.strptime(val.strip(), "%H:%M").time()
+            elif isinstance(val, time):
+                return val
             else:
-                base_time_obj = None
+                return None
 
-            if base_time_obj and raw_time_obj < base_time_obj:
+        raw_time_obj = to_time(raw_time)
+        base_time_obj = to_time(base_time)
+
+        if base_time_obj:
+            if base_time_obj >= time(18, 0) and raw_time_obj < time(3, 0):
                 base_date += pd.Timedelta(days=1)
 
         full_datetime = datetime.combine(base_date, raw_time_obj.replace(second=0))
@@ -95,7 +86,6 @@ def process_file(uploaded_file):
         'DAILY CK': 'Daily Check'
     }, inplace=True)
 
-    # Apply smart rollover formatting
     df['STA.'] = df.apply(lambda row: format_datetime(row['DATE'], row['STA'], None), axis=1)
     df['ATA.'] = df.apply(lambda row: format_datetime(row['DATE'], row['ATA'], row['STA']), axis=1)
     df['STD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('STD'), row['STA']), axis=1)
