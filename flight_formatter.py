@@ -4,13 +4,14 @@ from datetime import datetime, time
 import io
 from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
+from openpyxl.styles import numbers
 
-st.set_page_config(page_title="Flight Data Formatter", layout="wide")
-st.title("✈️ Portal Data Formatter (Streamlit Cloud Edition)")
+st.set_page_config(page_title="Flight Formatter", layout="wide")
+st.title("✈️ Portal Data Formatter (with Portal-Compatible Datetimes)")
 
 TEMPLATE_FILE = "00. WorkOrdersTemplate.xlsx"
 
-# Smart rollover logic: Only if STA is ≥ 18:00 and actual time is < 03:00
+# 🧠 Return actual datetime object (not string)
 def format_datetime(date, raw_time, base_time=None):
     if pd.isna(date) or pd.isna(raw_time):
         return None
@@ -31,8 +32,7 @@ def format_datetime(date, raw_time, base_time=None):
         if base_time_obj and base_time_obj >= time(18, 0) and raw_time_obj < time(3, 0):
             base_date += pd.Timedelta(days=1)
 
-        full_datetime = datetime.combine(base_date, raw_time_obj.replace(second=0))
-        return full_datetime.strftime("%m/%d/%Y %H:%M:%S")
+        return datetime.combine(base_date, raw_time_obj.replace(second=0))
     except Exception:
         return None
 
@@ -101,7 +101,7 @@ def process_file(uploaded_file):
             'Flight No.': row['FLT NO.'],
             'Registration Code': row['REG'],
             'Aircraft': row['A/C TYPES'],
-            'Date': pd.to_datetime(row['DATE']).strftime('%m/%d/%Y'),
+            'Date': pd.to_datetime(row['DATE']),
             'STA.': row['STA.'],
             'ATA.': row['ATA.'],
             'STD.': row['STD.'],
@@ -134,10 +134,12 @@ if uploaded_file:
             for cell in row:
                 cell.value = None
 
-        # Insert data into template
+        # Insert data + format datetime cells
         for r_idx, row in enumerate(dataframe_to_rows(result_df, index=False, header=False), start=2):
             for c_idx, value in enumerate(row, start=1):
-                ws.cell(row=r_idx, column=c_idx, value=value)
+                cell = ws.cell(row=r_idx, column=c_idx, value=value)
+                if isinstance(value, datetime):
+                    cell.number_format = 'MM/DD/YYYY HH:MM:SS'
 
         # Prepare download
         output = io.BytesIO()
@@ -155,4 +157,4 @@ if uploaded_file:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     except FileNotFoundError:
-        st.error("❌ Template file '00. WorkOrdersTemplate.xlsx' not found in this directory. Please include it in your GitHub repo.")
+        st.error("❌ Template file '00. WorkOrdersTemplate.xlsx' not found. Make sure it's included in your repo.")
