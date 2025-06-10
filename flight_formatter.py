@@ -11,10 +11,10 @@ def format_datetime(date, raw_time):
         return None
     if isinstance(raw_time, str):
         try:
-            parsed_time = datetime.strptime(raw_time, "%H:%M:%S").time()
+            parsed_time = datetime.strptime(raw_time, "%H:%M").time()
         except ValueError:
             try:
-                parsed_time = datetime.strptime(raw_time, "%H:%M:%S").time()
+                parsed_time = datetime.strptime(raw_time, "%H:%M").time()
             except ValueError:
                 return None
     elif isinstance(raw_time, time):
@@ -22,7 +22,7 @@ def format_datetime(date, raw_time):
     else:
         return None
     parsed_time = parsed_time.replace(second=0)
-    return datetime.combine(pd.to_datetime(date).date(), parsed_time).strftime("%m/%d/%Y %H:%M:%S")
+    return datetime.combine(pd.to_datetime(date).date(), parsed_time).strftime("%m/%d/%Y %H:%M")
 
 def extract_services(row):
     services = []
