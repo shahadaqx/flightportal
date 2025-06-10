@@ -2,15 +2,13 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, time
 import io
-from openpyxl import load_workbook
-from copy import copy
 
 st.title("✈️ Portal Data Formatter (with Final Rollover Logic)")
 
 # Final smart rollover logic — STA late night & raw_time early = next day
 def format_datetime(date, raw_time, base_time=None):
     if pd.isna(date) or pd.isna(raw_time):
-        return None 
+        return None
     try:
         base_date = pd.to_datetime(date).date()
 
@@ -138,37 +136,6 @@ def process_file(uploaded_file):
 
     return final_df, df['DATE'].iloc[0] if not df.empty else None
 
-def create_template_output(result_df):
-    """Create output with just the Template sheet formatted correctly"""
-    # Create a new workbook
-    output = io.BytesIO()
-    
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        # Write the headers
-        headers = ['WO#', 'Station', 'Customer', 'Flight No.', 'Registration Code', 'Aircraft', 'Date', 
-                  'STA.', 'ATA.', 'STD.', 'ATD.', 'Is Canceled', 'Services', 'Employees', 'Remarks', 'Comments']
-        pd.DataFrame(columns=headers).to_excel(writer, sheet_name='Template', index=False)
-        
-        # Get the workbook and worksheet objects
-        workbook = writer.book
-        worksheet = writer.sheets['Template']
-        
-        # Apply header formatting
-        header_font = copy(workbook['Template'].cell(row=1, column=1).font)
-        header_font.bold = True
-        
-        for col in range(1, len(headers) + 1):
-            cell = worksheet.cell(row=1, column=col)
-            cell.font = header_font
-        
-        # Write the data starting from row 2
-        for r_idx, row in enumerate(result_df.itertuples(), start=2):
-            for c_idx, value in enumerate(row[1:], start=1):  # Skip index (0)
-                worksheet.cell(row=r_idx, column=c_idx, value=value)
-    
-    output.seek(0)
-    return output
-
 uploaded_file = st.file_uploader("Upload Daily Operations Report", type=["xlsx"])
 
 if uploaded_file:
@@ -185,12 +152,7 @@ if uploaded_file:
     else:
         download_filename = "Formatted_Flight_Data.xlsx"
 
-    # Create the template-formatted output
-    template_output = create_template_output(result_df)
-    
-    st.download_button(
-        "📥 Download Formatted Excel", 
-        data=template_output.getvalue(), 
-        file_name=download_filename,
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        result_df.to_excel(writer, index=False)
+    st.download_button("📥 Download Formatted Excel", data=output.getvalue(), file_name=download_filename)
