@@ -100,11 +100,11 @@ def process_file(uploaded_file):
             'Flight No.': row['FLT NO.'],
             'Registration Code': row['REG'],
             'Aircraft': row['A/C TYPES'],
-            'Date': row['DATE'],  # ✅ Do not change
+            'Date': pd.to_datetime(row['DATE']).date(),  # ✅ ONLY DATE (no time)
             'STA.': row['STA.'],
             'ATA.': row['ATA.'],
-            'STD.': row['STD.'],
-            'ATD.': row['ATD.'],
+            'STD.': row['STD'],
+            'ATD.': row['ATD'],
             'Is Canceled': row['Is Canceled'],
             'Services': row['Services'],
             'Employees': ', '.join(filter(None, [
@@ -128,19 +128,21 @@ if uploaded_file:
         wb = load_workbook(TEMPLATE_FILE)
         ws = wb["Template"]
 
-        # Clear old data
+        # Clear existing rows
         for row in ws.iter_rows(min_row=2, max_row=1000):
             for cell in row:
                 cell.value = None
 
-        # Write data and format datetime cells
+        # Insert data + format cells
         for r_idx, row in enumerate(dataframe_to_rows(result_df, index=False, header=False), start=2):
             for c_idx, value in enumerate(row, start=1):
                 cell = ws.cell(row=r_idx, column=c_idx, value=value)
                 if isinstance(value, datetime):
                     cell.number_format = 'MM/DD/YYYY HH:MM:SS'
+                elif isinstance(value, pd.Timestamp) and value.time() == datetime.min.time():
+                    cell.number_format = 'MM/DD/YYYY'
 
-        # Save to BytesIO
+        # Save file
         output = io.BytesIO()
         wb.save(output)
 
