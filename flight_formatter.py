@@ -138,61 +138,36 @@ def process_file(uploaded_file):
 
     return final_df, df['DATE'].iloc[0] if not df.empty else None
 
-def merge_with_template(result_df, template_path):
-    """Merge the processed data with the template while preserving formatting"""
-    # Load the template workbook
-    wb = load_workbook(template_path)
-    ws = wb['Template']
-    
-    # Clear existing data below headers (row 2 and below)
-    for row in ws.iter_rows(min_row=2):
-        for cell in row:
-            cell.value = None
-    
-    # Write new data starting from row 2
-    for r_idx, row in enumerate(result_df.itertuples(), start=2):
-        for c_idx, value in enumerate(row[1:], start=1):  # Skip index (0)
-            cell = ws.cell(row=r_idx, column=c_idx, value=value)
-            
-            # Copy formatting from header row
-            if c_idx <= ws.max_column:
-                header_cell = ws.cell(row=1, column=c_idx)
-                cell.font = copy(header_cell.font)
-                cell.border = copy(header_cell.border)
-                cell.fill = copy(header_cell.fill)
-                cell.number_format = copy(header_cell.number_format)
-                cell.alignment = copy(header_cell.alignment)
-    
-    # Save to bytes buffer
+def create_template_output(result_df):
+    """Create output with just the Template sheet formatted correctly"""
+    # Create a new workbook
     output = io.BytesIO()
-    wb.save(output)
+    
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        # Write the headers
+        headers = ['WO#', 'Station', 'Customer', 'Flight No.', 'Registration Code', 'Aircraft', 'Date', 
+                  'STA.', 'ATA.', 'STD.', 'ATD.', 'Is Canceled', 'Services', 'Employees', 'Remarks', 'Comments']
+        pd.DataFrame(columns=headers).to_excel(writer, sheet_name='Template', index=False)
+        
+        # Get the workbook and worksheet objects
+        workbook = writer.book
+        worksheet = writer.sheets['Template']
+        
+        # Apply header formatting
+        header_font = copy(workbook['Template'].cell(row=1, column=1).font)
+        header_font.bold = True
+        
+        for col in range(1, len(headers) + 1):
+            cell = worksheet.cell(row=1, column=col)
+            cell.font = header_font
+        
+        # Write the data starting from row 2
+        for r_idx, row in enumerate(result_df.itertuples(), start=2):
+            for c_idx, value in enumerate(row[1:], start=1):  # Skip index (0)
+                worksheet.cell(row=r_idx, column=c_idx, value=value)
+    
     output.seek(0)
     return output
-
-# Load template from embedded data
-template_data = io.BytesIO()
-with pd.ExcelWriter(template_data, engine='openpyxl') as writer:
-    # Create Lookups sheet
-    lookups_df = pd.DataFrame({
-        'A': ['KKIA'] + [''] * 70,
-        'B': ['2S', '2W', '4M', '5K', '5O', '5W', '6E', '6K', '6Y', '8U', '9H', '9P', 'AFG', 'AH', 'AI', 'AT', 
-              'AZ', 'B4', 'BI', 'BJ', 'BS', 'C6', 'D3', 'E5', 'EK', 'ER', 'ET', 'EY', 'F3', 'FZ', 'G9', 'GA', 
-              'H9', 'IA', 'IR', 'IX', 'IY', 'J4', 'JT', 'KU', 'LN', 'LO', 'LY', 'ME', 'NB', 'PA', 'PC', 'PF', 
-              'PK', 'QG', 'QP', 'QR', 'R5', 'RA', 'RJ', 'RQ', 'SG', 'SQ', 'SV', 'T7', 'T8', 'TK', 'TR', 'UK', 
-              'UL', 'UZS', 'W4', 'WY', 'XLR', 'XY', 'YL', 'YR'],
-        'C': ['A300', 'A310', 'A319', 'A320', 'A320 NOE', 'A321', 'A321 NOE', 'A330', 'A330 NOE', 'A340', 'A350', 
-              'A380', 'B190', 'B707', 'B717', 'B720', 'B727', 'B737', 'B737 MAX', 'B737 NG', 'B747', 'B757', 'B767', 
-              'B777', 'B787', 'DC10', 'DC3', 'DC6', 'DC8', 'DC9', 'E110', 'E120', 'E135', 'E145', 'E170', 'E175', 
-              'E190', 'E195', 'E75S', 'EMB 140', 'EMB 170', 'EMB 190', 'MD11', 'MD80', 'MD81', 'MD82', 'MD83', 
-              'MD87', 'MD88', 'MD90'] + [''] * 22
-    })
-    lookups_df.to_excel(writer, sheet_name='Lookups', index=False)
-    
-    # Create Template sheet
-    template_headers = ['WO#', 'Station', 'Customer', 'Flight No.', 'Registration Code', 'Aircraft', 'Date', 'STA.', 
-                       'ATA.', 'STD.', 'ATD.', 'Is Canceled', 'Services', 'Employees', 'Remarks', 'Comments']
-    template_df = pd.DataFrame(columns=template_headers)
-    template_df.to_excel(writer, sheet_name='Template', index=False)
 
 uploaded_file = st.file_uploader("Upload Daily Operations Report", type=["xlsx"])
 
@@ -210,15 +185,12 @@ if uploaded_file:
     else:
         download_filename = "Formatted_Flight_Data.xlsx"
 
-    # Create template in memory
-    template_data.seek(0)
-    
-    # Merge with template
-    merged_output = merge_with_template(result_df, template_data)
+    # Create the template-formatted output
+    template_output = create_template_output(result_df)
     
     st.download_button(
         "📥 Download Formatted Excel", 
-        data=merged_output.getvalue(), 
+        data=template_output.getvalue(), 
         file_name=download_filename,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
