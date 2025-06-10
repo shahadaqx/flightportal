@@ -3,28 +3,40 @@ import pandas as pd
 from datetime import datetime, time
 import io
 
-st.title("✈️ Portal Data Formatter with Rollover Fix")
+st.title("✈️ Portal Data Formatter (with Smart Rollover Logic)")
 
-# Updated formatter with rollover logic
-def format_datetime(date, raw_time, reference_time=None):
+# Smart rollover: only add a day if time is earlier than STA (base_time)
+def format_datetime(date, raw_time, base_time=None):
     if pd.isna(date) or pd.isna(raw_time):
         return None
     try:
-        date_obj = pd.to_datetime(date).date()
+        base_date = pd.to_datetime(date).date()
+
         if isinstance(raw_time, str):
             try:
-                time_obj = datetime.strptime(raw_time.strip(), "%H:%M").time()
+                raw_time_obj = datetime.strptime(raw_time.strip(), "%H:%M").time()
             except ValueError:
                 return None
         elif isinstance(raw_time, time):
-            time_obj = raw_time
+            raw_time_obj = raw_time
         else:
             return None
 
-        if reference_time and time_obj < reference_time:
-            date_obj += pd.Timedelta(days=1)
+        if base_time:
+            if isinstance(base_time, str):
+                try:
+                    base_time_obj = datetime.strptime(base_time.strip(), "%H:%M").time()
+                except ValueError:
+                    base_time_obj = None
+            elif isinstance(base_time, time):
+                base_time_obj = base_time
+            else:
+                base_time_obj = None
 
-        full_datetime = datetime.combine(date_obj, time_obj.replace(second=0))
+            if base_time_obj and raw_time_obj < base_time_obj:
+                base_date += pd.Timedelta(days=1)
+
+        full_datetime = datetime.combine(base_date, raw_time_obj.replace(second=0))
         return full_datetime.strftime("%m/%d/%Y %H:%M:%S")
     except Exception:
         return None
@@ -83,16 +95,12 @@ def process_file(uploaded_file):
         'DAILY CK': 'Daily Check'
     }, inplace=True)
 
-    # Reference time for rollover
-    ref_time = time(3, 0)
-
-    # Apply corrected formatting
+    # Apply smart rollover formatting
     df['STA.'] = df.apply(lambda row: format_datetime(row['DATE'], row['STA'], None), axis=1)
-    df['ATA.'] = df.apply(lambda row: format_datetime(row['DATE'], row['ATA'], ref_time), axis=1)
-    df['STD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('STD'), ref_time), axis=1)
-    df['ATD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('ATD'), ref_time), axis=1)
+    df['ATA.'] = df.apply(lambda row: format_datetime(row['DATE'], row['ATA'], row['STA']), axis=1)
+    df['STD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('STD'), row['STA']), axis=1)
+    df['ATD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('ATD'), row['STA']), axis=1)
 
-    # Set ATA/ATD same as STA/STD if flight was cancelled
     canceled_mask = df['OTHER SERVICES/REMARKS'].str.contains('CANCELED|CANCELLED', case=False, na=False)
     df.loc[canceled_mask, 'ATA.'] = df.loc[canceled_mask, 'STA.']
     df.loc[canceled_mask, 'ATD.'] = df.loc[canceled_mask, 'STD.']
