@@ -135,12 +135,18 @@ if uploaded_file:
 
         # Insert data + format cells
         for r_idx, row in enumerate(dataframe_to_rows(result_df, index=False, header=False), start=2):
-            for c_idx, value in enumerate(row, start=1):
-                cell = ws.cell(row=r_idx, column=c_idx, value=value)
-                if isinstance(value, datetime):
-                    cell.number_format = 'MM/DD/YYYY HH:MM:SS'
-                elif isinstance(value, pd.Timestamp) and value.time() == datetime.min.time():
-                    cell.number_format = 'MM/DD/YYYY'
+    for c_idx, value in enumerate(row, start=1):
+        cell = ws.cell(row=r_idx, column=c_idx, value=value)
+        if isinstance(value, datetime):
+            if value.time() == datetime.min.time():
+                cell.number_format = 'MM/DD/YYYY'  # 🟢 Only date
+            else:
+                cell.number_format = 'MM/DD/YYYY HH:MM:SS'  # 🟢 Full datetime
+        elif isinstance(value, pd.Timestamp):
+            if value.time() == datetime.min.time():
+                cell.number_format = 'MM/DD/YYYY'
+            else:
+                cell.number_format = 'MM/DD/YYYY HH:MM:SS'
 
         # Save file
         output = io.BytesIO()
