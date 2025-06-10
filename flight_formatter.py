@@ -7,11 +7,10 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.styles import numbers
 
 st.set_page_config(page_title="Flight Formatter", layout="wide")
-st.title("✈️ Portal Data Formatter (with Portal-Compatible Datetimes)")
+st.title("✈️ Portal Data Formatter (Final Version)")
 
 TEMPLATE_FILE = "00. WorkOrdersTemplate.xlsx"
 
-# 🧠 Return actual datetime object (not string)
 def format_datetime(date, raw_time, base_time=None):
     if pd.isna(date) or pd.isna(raw_time):
         return None
@@ -101,7 +100,7 @@ def process_file(uploaded_file):
             'Flight No.': row['FLT NO.'],
             'Registration Code': row['REG'],
             'Aircraft': row['A/C TYPES'],
-            'Date': pd.to_datetime(row['DATE']),
+            'Date': row['DATE'],  # ✅ Do not change
             'STA.': row['STA.'],
             'ATA.': row['ATA.'],
             'STD.': row['STD.'],
@@ -129,19 +128,19 @@ if uploaded_file:
         wb = load_workbook(TEMPLATE_FILE)
         ws = wb["Template"]
 
-        # Clear existing rows
+        # Clear old data
         for row in ws.iter_rows(min_row=2, max_row=1000):
             for cell in row:
                 cell.value = None
 
-        # Insert data + format datetime cells
+        # Write data and format datetime cells
         for r_idx, row in enumerate(dataframe_to_rows(result_df, index=False, header=False), start=2):
             for c_idx, value in enumerate(row, start=1):
                 cell = ws.cell(row=r_idx, column=c_idx, value=value)
                 if isinstance(value, datetime):
                     cell.number_format = 'MM/DD/YYYY HH:MM:SS'
 
-        # Prepare download
+        # Save to BytesIO
         output = io.BytesIO()
         wb.save(output)
 
