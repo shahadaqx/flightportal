@@ -32,11 +32,11 @@ def extract_services(row):
 
     remark = str(row.get('OTHER SERVICES/REMARKS', '')).upper()
     if 'ON CALL - NEEDED ENGINEER SUPPORT' in remark:
-        services.append('On call - Needed Engineer Support')
+        services.append('On Call')
     elif 'CANCELED WITHOUT NOTICE' in remark or 'CANCELLED WITHOUT NOTICE' in remark:
         services.append('Canceled without notice')
     elif 'CANCELED' in remark or 'CANCELLED' in remark:
-        services.append('Canceled')
+        services.append('Cancelled Flight')
     elif 'ON CALL' in remark:
         services.append('Per Landing')
 
@@ -72,10 +72,10 @@ def process_file(uploaded_file):
         'REG.': 'REG',
         'TECH.\nSUPT': 'TECH. SUPT',
         'TECH. SUPT': 'TECH SUPPORT',
-        'HEAD SET': 'HEADSET',
-        'TRANSIT': 'TRANSIT',
-        'WKLY CK': 'WKLY CK',
-        'DAILY CK': 'DAILY CK'
+        'HEAD SET': 'Headset',
+        'TRANSIT': 'Transit',
+        'WKLY CK': 'Weekly Check',
+        'DAILY CK': 'Daily Check'
     }, inplace=True)
 
     df['STA.'] = df.apply(lambda row: format_datetime(row['DATE'], row['STA']), axis=1)
