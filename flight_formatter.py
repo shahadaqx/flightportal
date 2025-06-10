@@ -5,17 +5,39 @@ import io
 
 st.title("✈️ Portal Data Formatter")
 
-def format_time_only(raw_time):
-    if pd.isna(raw_time):
+def format_datetime(date, raw_time):
+    if pd.isna(date) or pd.isna(raw_time):
         return None
     if isinstance(raw_time, str):
         try:
-            return datetime.strptime(raw_time.strip(), "%H:%M").time()
+            parsed_time = datetime.strptime(raw_time.strip(), "%H:%M").time()
         except ValueError:
             return None
     elif isinstance(raw_time, time):
-        return raw_time
-    return None
+        parsed_time = raw_time
+    else:
+        return None
+    parsed_time = parsed_time.replace(second=0)
+    return datetime.combine(pd.to_datetime(date).date(), parsed_time)
+
+def adjust_ata_atd_dates(series, base_date):
+    adjusted = []
+    day_increment = 0
+    last_time = None
+
+    for val in series:
+        if pd.isna(val):
+            adjusted.append(None)
+            continue
+        current_time = val.time()
+        if last_time and current_time < last_time:
+            # Passed midnight, increment date ONCE
+            day_increment = 1
+        adjusted_date = val + timedelta(days=day_increment)
+        adjusted.append(adjusted_date)
+        last_time = current_time
+
+    return adjusted
 
 def extract_services(row):
     services = []
@@ -57,28 +79,6 @@ def categorize(row):
     else:
         return '5_OTHER'
 
-def apply_cyclic_date_correction(df, time_column, date_column):
-    corrected_times = []
-    last_time = None
-    date_offset = 0
-
-    for idx, row in df.iterrows():
-        base_date = pd.to_datetime(row[date_column]).date()
-        raw_time = format_time_only(row[time_column])
-        if raw_time is None:
-            corrected_times.append(None)
-            continue
-
-        # If time decreases, it's a new day
-        if last_time and raw_time < last_time:
-            date_offset += 1
-        last_time = raw_time
-
-        corrected_datetime = datetime.combine(base_date + timedelta(days=date_offset), raw_time)
-        corrected_times.append(corrected_datetime.strftime('%m/%d/%Y %H:%M'))
-
-    return corrected_times
-
 def process_file(uploaded_file):
     df = pd.read_excel(uploaded_file, sheet_name='Daily Operations Report', header=4)
     df.dropna(how='all', inplace=True)
@@ -93,25 +93,28 @@ def process_file(uploaded_file):
         'DAILY CK': 'Daily Check'
     }, inplace=True)
 
-    # Raw time formatting
-    df['STA.'] = df.apply(lambda row: format_datetime(row['DATE'], row['STA']), axis=1)
-    df['STD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('STD')), axis=1)
+    df['STA_dt'] = df.apply(lambda row: format_datetime(row['DATE'], row['STA']), axis=1)
+    df['ATA_dt'] = df.apply(lambda row: format_datetime(row['DATE'], row['ATA']), axis=1)
+    df['STD_dt'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('STD')), axis=1)
+    df['ATD_dt'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('ATD')), axis=1)
 
-    # Correct ATA/ATD based on time decreases
-    df['ATA.'] = apply_cyclic_date_correction(df, 'ATA', 'DATE')
-    df['ATD.'] = apply_cyclic_date_correction(df, 'ATD', 'DATE')
+    # Adjust ATA/ATD with one-cycle date logic
+    if not df.empty:
+        base_date = pd.to_datetime(df['DATE'].iloc[0])
+        df['ATA_dt'] = adjust_ata_atd_dates(df['ATA_dt'], base_date)
+        df['ATD_dt'] = adjust_ata_atd_dates(df['ATD_dt'], base_date)
 
-    # Fix STD/ATD if they're earlier than STA/ATA
-    df['STA_dt'] = pd.to_datetime(df['STA.'], errors='coerce')
-    df['STD_dt'] = pd.to_datetime(df['STD.'], errors='coerce')
-    df['ATA_dt'] = pd.to_datetime(df['ATA.'], errors='coerce')
-    df['ATD_dt'] = pd.to_datetime(df['ATD.'], errors='coerce')
-
+    # Ensure STD is not earlier than STA, and ATD not earlier than ATA
     df.loc[df['STD_dt'] < df['STA_dt'], 'STD_dt'] += timedelta(days=1)
     df.loc[df['ATD_dt'] < df['ATA_dt'], 'ATD_dt'] += timedelta(days=1)
 
+    # Format back to strings
+    df['STA.'] = df['STA_dt'].dt.strftime('%m/%d/%Y %H:%M')
+    df['ATA.'] = df['ATA_dt'].dt.strftime('%m/%d/%Y %H:%M')
     df['STD.'] = df['STD_dt'].dt.strftime('%m/%d/%Y %H:%M')
     df['ATD.'] = df['ATD_dt'].dt.strftime('%m/%d/%Y %H:%M')
+
+    # Cleanup
     df.drop(columns=['STA_dt', 'STD_dt', 'ATA_dt', 'ATD_dt'], inplace=True)
 
     canceled_mask = df['OTHER SERVICES/REMARKS'].str.contains('CANCELED|CANCELLED', case=False, na=False)
@@ -126,7 +129,6 @@ def process_file(uploaded_file):
 
     normal_rows = []
     outliers = []
-
     for _, row in df.iterrows():
         try:
             formatted_row = {
@@ -159,14 +161,6 @@ def process_file(uploaded_file):
         final_df = pd.concat([final_df, pd.DataFrame([{}]), pd.DataFrame(outliers)], ignore_index=True)
 
     return final_df, df['DATE'].iloc[0] if not df.empty else None
-
-def format_datetime(date, raw_time):
-    if pd.isna(date) or pd.isna(raw_time):
-        return None
-    parsed_time = format_time_only(raw_time)
-    if parsed_time is None:
-        return None
-    return datetime.combine(pd.to_datetime(date).date(), parsed_time).strftime("%m/%d/%Y %H:%M")
 
 uploaded_file = st.file_uploader("Upload Daily Operations Report", type=["xlsx"])
 
