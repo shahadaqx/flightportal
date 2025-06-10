@@ -9,20 +9,24 @@ st.title("✈️ Portal Data Formatter")
 def format_datetime(date, raw_time):
     if pd.isna(date) or pd.isna(raw_time):
         return None
-    if isinstance(raw_time, str):
-        try:
-            parsed_time = datetime.strptime(raw_time, "%H:%M").time()
-        except ValueError:
+    try:
+        date_obj = pd.to_datetime(date).date()
+        if isinstance(raw_time, str):
             try:
-                parsed_time = datetime.strptime(raw_time, "%H:%M").time()
+                time_obj = datetime.strptime(raw_time.strip(), "%H:%M").time()
             except ValueError:
                 return None
-    elif isinstance(raw_time, time):
-        parsed_time = raw_time
-    else:
+        elif isinstance(raw_time, time):
+            time_obj = raw_time
+        else:
+            return None
+
+        # Force seconds to 00
+        time_obj = time_obj.replace(second=0)
+        full_datetime = datetime.combine(date_obj, time_obj)
+        return full_datetime.strftime("%m/%d/%Y %H:%M:%S")
+    except Exception:
         return None
-    parsed_time = parsed_time.replace(second=0)
-    return datetime.combine(pd.to_datetime(date).date(), parsed_time).strftime("%m/%d/%Y %H:%M")
 
 def extract_services(row):
     services = []
