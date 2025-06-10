@@ -22,7 +22,7 @@ def format_datetime(date, raw_time):
     else:
         return None
     parsed_time = parsed_time.replace(second=0)
-    return datetime.combine(pd.to_datetime(date).date(), parsed_time).strftime("%m/%d/%Y %H:%M")
+    return datetime.combine(pd.to_datetime(date).date(), parsed_time).strftime("%m/%d/%Y %H:%M:%S")
 
 def extract_services(row):
     services = []
