@@ -2,11 +2,11 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, time
 import io
-from openpyxl.utils import get_column_letter
 
-st.title("✈️ Portal Data Formatter")
+st.title("✈️ Portal Data Formatter with Rollover Fix")
 
-def format_datetime(date, raw_time):
+# Updated formatter with rollover logic
+def format_datetime(date, raw_time, reference_time=None):
     if pd.isna(date) or pd.isna(raw_time):
         return None
     try:
@@ -21,9 +21,10 @@ def format_datetime(date, raw_time):
         else:
             return None
 
-        # Force seconds to 00
-        time_obj = time_obj.replace(second=0)
-        full_datetime = datetime.combine(date_obj, time_obj)
+        if reference_time and time_obj < reference_time:
+            date_obj += pd.Timedelta(days=1)
+
+        full_datetime = datetime.combine(date_obj, time_obj.replace(second=0))
         return full_datetime.strftime("%m/%d/%Y %H:%M:%S")
     except Exception:
         return None
@@ -82,17 +83,21 @@ def process_file(uploaded_file):
         'DAILY CK': 'Daily Check'
     }, inplace=True)
 
-    df['STA.'] = df.apply(lambda row: format_datetime(row['DATE'], row['STA']), axis=1)
-    df['ATA.'] = df.apply(lambda row: format_datetime(row['DATE'], row['ATA']), axis=1)
-    df['STD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('STD')), axis=1)
-    df['ATD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('ATD')), axis=1)
+    # Reference time for rollover
+    ref_time = time(3, 0)
 
+    # Apply corrected formatting
+    df['STA.'] = df.apply(lambda row: format_datetime(row['DATE'], row['STA'], None), axis=1)
+    df['ATA.'] = df.apply(lambda row: format_datetime(row['DATE'], row['ATA'], ref_time), axis=1)
+    df['STD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('STD'), ref_time), axis=1)
+    df['ATD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('ATD'), ref_time), axis=1)
+
+    # Set ATA/ATD same as STA/STD if flight was cancelled
     canceled_mask = df['OTHER SERVICES/REMARKS'].str.contains('CANCELED|CANCELLED', case=False, na=False)
     df.loc[canceled_mask, 'ATA.'] = df.loc[canceled_mask, 'STA.']
     df.loc[canceled_mask, 'ATD.'] = df.loc[canceled_mask, 'STD.']
 
     df['Customer'] = df['FLT NO.'].astype(str).str.strip().apply(lambda x: 'XLR' if x.startswith('DHX') else x[:2])
-
     df['Services'] = df.apply(extract_services, axis=1)
     df['Is Canceled'] = df['OTHER SERVICES/REMARKS'].str.contains('CANCELED|CANCELLED', na=False, case=False)
     df['Category'] = df.apply(categorize, axis=1)
