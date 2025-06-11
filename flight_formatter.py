@@ -5,9 +5,8 @@ import io
 from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 
-st.title("✈️ Portal Data Formatter (with Template Paste)")
+st.title("✈️ Portal Data Formatter with Template Pasting")
 
-# Final smart rollover logic
 def format_datetime(date, raw_time, base_time=None):
     if pd.isna(date) or pd.isna(raw_time):
         return None
@@ -28,8 +27,7 @@ def format_datetime(date, raw_time, base_time=None):
         if base_time_obj and base_time_obj >= time(18, 0) and raw_time_obj < time(3, 0):
             base_date += pd.Timedelta(days=1)
 
-        full_datetime = datetime.combine(base_date, raw_time_obj.replace(second=0))
-        return full_datetime
+        return datetime.combine(base_date, raw_time_obj.replace(second=0))
     except Exception:
         return None
 
@@ -135,14 +133,20 @@ def process_file(uploaded_file, template_file):
     template_wb = load_workbook(template_file)
     ws = template_wb.active
 
-    # Write starting after the header row (assumed row 2)
-    start_row = 2
+    start_row = 2  # paste after headers
     for r_idx, row in enumerate(dataframe_to_rows(result_df, index=False, header=False), start=start_row):
         for c_idx, value in enumerate(row, start=1):
             cell = ws.cell(row=r_idx, column=c_idx)
-            cell.value = value
             if isinstance(value, pd.Timestamp):
-                cell.number_format = 'mm/dd/yyyy hh:mm'
+                cell.value = value.strftime('%m/%d/%Y %H:%M')  # write as string
+                cell.number_format = '@'  # text format
+            elif isinstance(value, bool):
+                cell.value = 'Yes' if value else 'No'
+                cell.number_format = '@'
+            elif isinstance(value, float) and value.is_integer():
+                cell.value = int(value)
+            else:
+                cell.value = value
 
     template_wb.save(output)
     output.seek(0)
@@ -168,3 +172,4 @@ if uploaded_file and template_file:
         filename = "Final_WorkOrders.xlsx"
 
     st.download_button("📥 Download Final Work Order File", data=final_output, file_name=filename)
+
