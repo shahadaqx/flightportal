@@ -5,11 +5,11 @@ import io
 from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 import os
-
 TEMPLATE_PATH = "00. WorkOrdersTemplate.xlsx"
 
 st.title("✈️ Portal Data Formatter (with Template Paste)")
 
+# Final smart rollover logic
 def format_datetime(date, raw_time, base_time=None):
     if pd.isna(date) or pd.isna(raw_time):
         return None
@@ -75,24 +75,8 @@ def categorize(row):
     else:
         return '5_OTHER'
 
-def find_data_start(df_raw):
-    for i, row in df_raw.iterrows():
-        if "W/O" in row.values or "FLT NO." in row.values:
-            return i
-    return None
-
-def process_file(uploaded_file):
-    xl = pd.ExcelFile(uploaded_file)
-    sheet_name = [s for s in xl.sheet_names if "daily" in s.lower()][0]
-
-    raw_df = xl.parse(sheet_name=sheet_name, header=None)
-    header_row = find_data_start(raw_df)
-
-    if header_row is None:
-        st.error("❌ Could not locate the correct header row in the uploaded file.")
-        return None, None
-
-    df = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=header_row)
+def process_file(uploaded_file, template_file):
+    df = pd.read_excel(uploaded_file, sheet_name='Daily Operations Report', header=4)
     df.dropna(how='all', inplace=True)
     df.rename(columns=lambda x: x.strip() if isinstance(x, str) else x, inplace=True)
     df.rename(columns={
@@ -133,8 +117,8 @@ def process_file(uploaded_file):
                 'Date': pd.to_datetime(row['DATE']),
                 'STA.': row['STA.'],
                 'ATA.': row['ATA.'],
-                'STD.': row['STD'],
-                'ATD.': row['ATD'],
+                'STD.': row['STD.'],
+                'ATD.': row['ATD.'],
                 'Is Canceled': row['Is Canceled'],
                 'Services': row['Services'],
                 'Employees': ', '.join(filter(None, [
@@ -150,19 +134,19 @@ def process_file(uploaded_file):
     result_df = pd.DataFrame(result_rows)
 
     output = io.BytesIO()
-    if not os.path.exists(TEMPLATE_PATH):
-        raise FileNotFoundError(f"Template file not found at: {TEMPLATE_PATH}")
-
-    template_wb = load_workbook(TEMPLATE_PATH)
+    template_wb = load_workbook(template_file)
     ws = template_wb.active
 
+    # Write starting after the header row (assumed row 2)
     start_row = 2
     for r_idx, row in enumerate(dataframe_to_rows(result_df, index=False, header=False), start=start_row):
         for c_idx, value in enumerate(row, start=1):
             cell = ws.cell(row=r_idx, column=c_idx)
             cell.value = value
+
+            # Apply short date format ONLY to 'Date' column (column 7)
             if c_idx == 7 and isinstance(value, (datetime, pd.Timestamp)):
-                cell.value = value.date()
+                cell.value = value.date()  # Remove time part
                 cell.number_format = 'mm/dd/yyyy'
             elif isinstance(value, pd.Timestamp):
                 cell.number_format = 'mm/dd/yyyy hh:mm'
@@ -173,21 +157,21 @@ def process_file(uploaded_file):
     report_date = df['DATE'].iloc[0] if not df.empty else None
     return output, report_date
 
-# --- Streamlit Interface ---
+# Upload files
 uploaded_file = st.file_uploader("Upload Daily Operations Report", type=["xlsx"])
+template_file = st.file_uploader("Upload Work Order Template", type=["xlsx"])
 
-if uploaded_file:
-    st.success("✅ Report uploaded successfully!")
-    final_output, report_date = process_file(uploaded_file)
+if uploaded_file and template_file:
+    st.success("✅ Files uploaded successfully!")
+    final_output, report_date = process_file(uploaded_file, template_file)
 
-    if final_output is not None:
-        if report_date is not None:
-            try:
-                date_obj = pd.to_datetime(report_date)
-                filename = date_obj.strftime("%d%b%Y").upper() + "_WorkOrders.xlsx"
-            except Exception:
-                filename = "Final_WorkOrders.xlsx"
-        else:
+    if report_date is not None:
+        try:
+            date_obj = pd.to_datetime(report_date)
+            filename = date_obj.strftime("%d%b%Y").upper() + "_WorkOrders.xlsx"
+        except Exception:
             filename = "Final_WorkOrders.xlsx"
+    else:
+        filename = "Final_WorkOrders.xlsx"
 
-        st.download_button("📥 Download Final Work Order File", data=final_output, file_name=filename)
+    st.download_button("📥 Download Final Work Order File", data=final_output, file_name=filename)
