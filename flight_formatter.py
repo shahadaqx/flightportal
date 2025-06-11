@@ -112,7 +112,7 @@ def process_file(uploaded_file, template_file):
                 'Flight No.': row['FLT NO.'],
                 'Registration Code': row['REG'],
                 'Aircraft': row['A/C TYPES'],
-                'Date': pd.to_datetime(row['DATE']).date(),  # ✅ Ensure only date is stored
+                'Date': pd.to_datetime(row['DATE']),
                 'STA.': row['STA.'],
                 'ATA.': row['ATA.'],
                 'STD.': row['STD.'],
@@ -141,8 +141,13 @@ def process_file(uploaded_file, template_file):
         for c_idx, value in enumerate(row, start=1):
             cell = ws.cell(row=r_idx, column=c_idx)
             cell.value = value
-            # 🛠️ NO formatting set — keep whatever the template already has.
-            # Only one thing changed: Date column stores `.date()` so only date appears.
+
+            # Apply short date format ONLY to 'Date' column (column 7)
+            if c_idx == 7 and isinstance(value, (datetime, pd.Timestamp)):
+                cell.value = value.date()  # Remove time part
+                cell.number_format = 'mm/dd/yyyy'
+            elif isinstance(value, pd.Timestamp):
+                cell.number_format = 'mm/dd/yyyy hh:mm'
 
     template_wb.save(output)
     output.seek(0)
