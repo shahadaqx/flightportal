@@ -2,31 +2,26 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, time
 import io
+from openpyxl import load_workbook
+from openpyxl.utils.dataframe import dataframe_to_rows
 
-st.title("✈️ Portal Data Formatter (with Final Rollover Logic)")
+st.title("✈️ Portal Data Formatter (with Template Integration)")
 
-# Final smart rollover logic — STA late night & raw_time early = next day
 def format_datetime(date, raw_time, base_time=None):
     if pd.isna(date) or pd.isna(raw_time):
         return None
     try:
         base_date = pd.to_datetime(date).date()
-
         def to_time(val):
             if isinstance(val, str):
                 return datetime.strptime(val.strip(), "%H:%M").time()
             elif isinstance(val, time):
                 return val
-            else:
-                return None
-
+            return None
         raw_time_obj = to_time(raw_time)
         base_time_obj = to_time(base_time)
-
-        if base_time_obj:
-            if base_time_obj >= time(18, 0) and raw_time_obj < time(3, 0):
-                base_date += pd.Timedelta(days=1)
-
+        if base_time_obj and base_time_obj >= time(18, 0) and raw_time_obj < time(3, 0):
+            base_date += pd.Timedelta(days=1)
         full_datetime = datetime.combine(base_date, raw_time_obj.replace(second=0))
         return full_datetime.strftime("%m/%d/%Y %H:%M:%S")
     except Exception:
@@ -37,7 +32,6 @@ def extract_services(row):
     for col in row.index:
         if isinstance(col, str) and str(row[col]).strip() == '√':
             services.append(col.strip())
-
     remark = str(row.get('OTHER SERVICES/REMARKS', '')).upper()
     if 'ON CALL - NEEDED ENGINEER SUPPORT' in remark:
         services.append('On Call')
@@ -47,7 +41,6 @@ def extract_services(row):
         services.append('Cancelled Flight')
     elif 'ON CALL' in remark:
         services.append('Per Landing')
-
     corrected_services = []
     for service in services:
         if service == 'TECH. SUPT':
@@ -56,7 +49,6 @@ def extract_services(row):
             corrected_services.append('Headset')
         else:
             corrected_services.append(service)
-
     return ', '.join(corrected_services) if corrected_services else None
 
 def categorize(row):
@@ -69,8 +61,7 @@ def categorize(row):
         return '3_CANCELED'
     elif 'ON CALL' in remark:
         return '4_ONCALL_RECORDED'
-    else:
-        return '5_OTHER'
+    return '5_OTHER'
 
 def process_file(uploaded_file):
     df = pd.read_excel(uploaded_file, sheet_name='Daily Operations Report', header=4)
@@ -102,7 +93,6 @@ def process_file(uploaded_file):
     df.sort_values(by=['Category', 'STA.'], inplace=True)
 
     normal_rows = []
-    outliers = []
     for _, row in df.iterrows():
         try:
             formatted_row = {
@@ -128,32 +118,49 @@ def process_file(uploaded_file):
             }
             normal_rows.append(formatted_row)
         except Exception:
-            outliers.append(row)
+            continue
 
     final_df = pd.DataFrame(normal_rows)
-    if outliers:
-        final_df = pd.concat([final_df, pd.DataFrame([{}]), pd.DataFrame(outliers)], ignore_index=True)
-
-    return final_df, df['DATE'].iloc[0] if not df.empty else None
+    report_date = df['DATE'].iloc[0] if not df.empty else None
+    return final_df, report_date
 
 uploaded_file = st.file_uploader("Upload Daily Operations Report", type=["xlsx"])
+template_file = "/mnt/data/00. WorkOrdersTemplate.xlsx"
 
 if uploaded_file:
     st.success("✅ File uploaded successfully!")
     result_df, report_date = process_file(uploaded_file)
     st.dataframe(result_df)
 
-    if report_date:
-        try:
-            date_obj = pd.to_datetime(report_date)
-            download_filename = date_obj.strftime("%d%b%Y").upper() + ".xlsx"
-        except Exception:
-            download_filename = "Formatted_Flight_Data.xlsx"
-    else:
-        download_filename = "Formatted_Flight_Data.xlsx"
+    wb = load_workbook(template_file)
+    ws = wb.worksheets[0]  # First sheet
+
+    # Detect header row and paste after it
+    header_row = None
+    for row in ws.iter_rows(min_row=1, max_row=20):
+        if any(cell.value for cell in row):
+            header_row = row[0].row
+        else:
+            break
+    start_row = header_row + 1 if header_row else 2
+
+    # Clear existing data below header
+    for row in ws.iter_rows(min_row=start_row, max_row=ws.max_row):
+        for cell in row:
+            cell.value = None
+
+    # Paste values only (preserve formatting)
+    for r_idx, row in enumerate(dataframe_to_rows(result_df, index=False, header=False), start=start_row):
+        for c_idx, value in enumerate(row, start=1):
+            ws.cell(row=r_idx, column=c_idx).value = value
 
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        result_df.to_excel(writer, index=False)
-    st.download_button("📥 Download Formatted Excel", data=output.getvalue(), file_name=download_filename)
+    wb.save(output)
+    output.seek(0)
 
+    filename = (
+        pd.to_datetime(report_date).strftime("%d%b%Y").upper() + "_WorkOrders.xlsx"
+        if report_date else "Formatted_WorkOrders.xlsx"
+    )
+
+    st.download_button("📥 Download Final Work Orders Excel", data=output.getvalue(), file_name=filename)
