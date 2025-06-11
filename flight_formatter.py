@@ -5,6 +5,8 @@ import io
 from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 
+TEMPLATE_PATH = "/mnt/data/00. WorkOrdersTemplate.xlsx"
+
 st.title("✈️ Portal Data Formatter (with Template Paste)")
 
 # Final smart rollover logic
@@ -73,7 +75,7 @@ def categorize(row):
     else:
         return '5_OTHER'
 
-def process_file(uploaded_file, template_file):
+def process_file(uploaded_file):
     df = pd.read_excel(uploaded_file, sheet_name='Daily Operations Report', header=4)
     df.dropna(how='all', inplace=True)
     df.rename(columns=lambda x: x.strip() if isinstance(x, str) else x, inplace=True)
@@ -115,8 +117,8 @@ def process_file(uploaded_file, template_file):
                 'Date': pd.to_datetime(row['DATE']),
                 'STA.': row['STA.'],
                 'ATA.': row['ATA.'],
-                'STD.': row['STD.'],
-                'ATD.': row['ATD.'],
+                'STD.': row['STD'],
+                'ATD.': row['ATD'],
                 'Is Canceled': row['Is Canceled'],
                 'Services': row['Services'],
                 'Employees': ', '.join(filter(None, [
@@ -132,7 +134,7 @@ def process_file(uploaded_file, template_file):
     result_df = pd.DataFrame(result_rows)
 
     output = io.BytesIO()
-    template_wb = load_workbook(template_file)
+    template_wb = load_workbook(TEMPLATE_PATH)
     ws = template_wb.active
 
     # Write starting after the header row (assumed row 2)
@@ -142,9 +144,9 @@ def process_file(uploaded_file, template_file):
             cell = ws.cell(row=r_idx, column=c_idx)
             cell.value = value
 
-            # Apply short date format ONLY to 'Date' column (column 7)
+            # Short date format only for 'Date' column (7th column)
             if c_idx == 7 and isinstance(value, (datetime, pd.Timestamp)):
-                cell.value = value.date()  # Remove time part
+                cell.value = value.date()  # Strip time part
                 cell.number_format = 'mm/dd/yyyy'
             elif isinstance(value, pd.Timestamp):
                 cell.number_format = 'mm/dd/yyyy hh:mm'
@@ -155,13 +157,12 @@ def process_file(uploaded_file, template_file):
     report_date = df['DATE'].iloc[0] if not df.empty else None
     return output, report_date
 
-# Upload files
+# Upload only the operations report (template is now hardcoded)
 uploaded_file = st.file_uploader("Upload Daily Operations Report", type=["xlsx"])
-template_file = st.file_uploader("Upload Work Order Template", type=["xlsx"])
 
-if uploaded_file and template_file:
-    st.success("✅ Files uploaded successfully!")
-    final_output, report_date = process_file(uploaded_file, template_file)
+if uploaded_file:
+    st.success("✅ Report uploaded successfully!")
+    final_output, report_date = process_file(uploaded_file)
 
     if report_date is not None:
         try:
