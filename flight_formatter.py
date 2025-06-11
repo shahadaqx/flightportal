@@ -4,8 +4,6 @@ from datetime import datetime, time
 import io
 from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
-import os
-TEMPLATE_PATH = "00. WorkOrdersTemplate.xlsx"
 
 st.title("✈️ Portal Data Formatter (with Template Paste)")
 
