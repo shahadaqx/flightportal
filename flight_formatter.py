@@ -5,7 +5,7 @@ import io
 from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 
-st.title("✈️ Portal Data Formatter (with Template Integration)")
+st.title("✈️ Portal Data Formatter (Preserve Template Format)")
 
 def format_datetime(date, raw_time, base_time=None):
     if pd.isna(date) or pd.isna(raw_time):
@@ -92,10 +92,10 @@ def process_file(uploaded_file):
     df['Category'] = df.apply(categorize, axis=1)
     df.sort_values(by=['Category', 'STA.'], inplace=True)
 
-    normal_rows = []
+    result_rows = []
     for _, row in df.iterrows():
         try:
-            formatted_row = {
+            result_rows.append({
                 'WO#': row['W/O'],
                 'Station': 'KKIA',
                 'Customer': row['Customer'],
@@ -115,55 +115,48 @@ def process_file(uploaded_file):
                 ])),
                 'Remarks': '',
                 'Comments': ''
-            }
-            normal_rows.append(formatted_row)
-        except Exception:
+            })
+        except:
             continue
 
-    final_df = pd.DataFrame(normal_rows)
-    report_date = df['DATE'].iloc[0] if not df.empty else None
-    return final_df, report_date
+    return pd.DataFrame(result_rows), df['DATE'].iloc[0] if not df.empty else None
 
 uploaded_file = st.file_uploader("📤 Upload Daily Operations Report", type=["xlsx"])
-template_uploaded = st.file_uploader("📥 Upload Excel Template File", type=["xlsx"])
+template_uploaded = st.file_uploader("📥 Upload Excel Template (with formatting)", type=["xlsx"])
 
 if uploaded_file and template_uploaded:
-    st.success("✅ Files uploaded successfully!")
+    st.success("✅ Files uploaded successfully.")
     result_df, report_date = process_file(uploaded_file)
     st.dataframe(result_df)
 
-    # Load template from uploaded BytesIO
-    template_bytes = io.BytesIO(template_uploaded.read())
-    wb = load_workbook(template_bytes)
+    # Load template in memory
+    template_io = io.BytesIO(template_uploaded.read())
+    wb = load_workbook(template_io)
     ws = wb.worksheets[0]
 
-    # Detect header row (first row with non-empty cells)
-    header_row = None
-    for row in ws.iter_rows(min_row=1, max_row=20):
+    # Find header row (first non-empty row)
+    header_row_idx = None
+    for i, row in enumerate(ws.iter_rows(min_row=1, max_row=20), start=1):
         if any(cell.value for cell in row):
-            header_row = row[0].row
-        else:
+            header_row_idx = i
             break
-    start_row = header_row + 1 if header_row else 2
+    if not header_row_idx:
+        st.error("❌ Could not find a header row in template.")
+        st.stop()
+    start_row = header_row_idx + 1
 
-    # Clear old data below headers
-    for row in ws.iter_rows(min_row=start_row, max_row=ws.max_row):
-        for cell in row:
-            cell.value = None
-
-    # Paste result_df values
+    # Write values only (preserve formatting)
     for r_idx, row in enumerate(dataframe_to_rows(result_df, index=False, header=False), start=start_row):
         for c_idx, value in enumerate(row, start=1):
-            ws.cell(row=r_idx, column=c_idx).value = value
+            ws.cell(row=r_idx, column=c_idx).value = value  # value only; do not touch styles
 
-    # Output final file
+    # Save result to new downloadable file
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
 
-    filename = (
+    output_name = (
         pd.to_datetime(report_date).strftime("%d%b%Y").upper() + "_WorkOrders.xlsx"
         if report_date else "Formatted_WorkOrders.xlsx"
     )
-
-    st.download_button("📥 Download Final Work Orders Excel", data=output, file_name=filename)
+    st.download_button("📥 Download Final Work Orders File", data=output, file_name=output_name)
