@@ -124,18 +124,20 @@ def process_file(uploaded_file):
     report_date = df['DATE'].iloc[0] if not df.empty else None
     return final_df, report_date
 
-uploaded_file = st.file_uploader("Upload Daily Operations Report", type=["xlsx"])
-template_file = "/mnt/data/00. WorkOrdersTemplate.xlsx"
+uploaded_file = st.file_uploader("📤 Upload Daily Operations Report", type=["xlsx"])
+template_uploaded = st.file_uploader("📥 Upload Excel Template File", type=["xlsx"])
 
-if uploaded_file:
-    st.success("✅ File uploaded successfully!")
+if uploaded_file and template_uploaded:
+    st.success("✅ Files uploaded successfully!")
     result_df, report_date = process_file(uploaded_file)
     st.dataframe(result_df)
 
-    wb = load_workbook(template_file)
-    ws = wb.worksheets[0]  # First sheet
+    # Load template from uploaded BytesIO
+    template_bytes = io.BytesIO(template_uploaded.read())
+    wb = load_workbook(template_bytes)
+    ws = wb.worksheets[0]
 
-    # Detect header row and paste after it
+    # Detect header row (first row with non-empty cells)
     header_row = None
     for row in ws.iter_rows(min_row=1, max_row=20):
         if any(cell.value for cell in row):
@@ -144,16 +146,17 @@ if uploaded_file:
             break
     start_row = header_row + 1 if header_row else 2
 
-    # Clear existing data below header
+    # Clear old data below headers
     for row in ws.iter_rows(min_row=start_row, max_row=ws.max_row):
         for cell in row:
             cell.value = None
 
-    # Paste values only (preserve formatting)
+    # Paste result_df values
     for r_idx, row in enumerate(dataframe_to_rows(result_df, index=False, header=False), start=start_row):
         for c_idx, value in enumerate(row, start=1):
             ws.cell(row=r_idx, column=c_idx).value = value
 
+    # Output final file
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
@@ -163,4 +166,4 @@ if uploaded_file:
         if report_date else "Formatted_WorkOrders.xlsx"
     )
 
-    st.download_button("📥 Download Final Work Orders Excel", data=output.getvalue(), file_name=filename)
+    st.download_button("📥 Download Final Work Orders Excel", data=output, file_name=filename)
