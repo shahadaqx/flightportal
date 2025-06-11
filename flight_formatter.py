@@ -5,25 +5,31 @@ import io
 from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 
-st.title("✈️ Portal Data Formatter (Preserve Template Format)")
+st.title("✈️ Portal Data Formatter (with Template Paste)")
 
+# Final smart rollover logic
 def format_datetime(date, raw_time, base_time=None):
     if pd.isna(date) or pd.isna(raw_time):
         return None
     try:
         base_date = pd.to_datetime(date).date()
+
         def to_time(val):
             if isinstance(val, str):
                 return datetime.strptime(val.strip(), "%H:%M").time()
             elif isinstance(val, time):
                 return val
-            return None
+            else:
+                return None
+
         raw_time_obj = to_time(raw_time)
         base_time_obj = to_time(base_time)
+
         if base_time_obj and base_time_obj >= time(18, 0) and raw_time_obj < time(3, 0):
             base_date += pd.Timedelta(days=1)
+
         full_datetime = datetime.combine(base_date, raw_time_obj.replace(second=0))
-        return full_datetime.strftime("%m/%d/%Y %H:%M:%S")
+        return full_datetime
     except Exception:
         return None
 
@@ -32,6 +38,7 @@ def extract_services(row):
     for col in row.index:
         if isinstance(col, str) and str(row[col]).strip() == '√':
             services.append(col.strip())
+
     remark = str(row.get('OTHER SERVICES/REMARKS', '')).upper()
     if 'ON CALL - NEEDED ENGINEER SUPPORT' in remark:
         services.append('On Call')
@@ -41,6 +48,7 @@ def extract_services(row):
         services.append('Cancelled Flight')
     elif 'ON CALL' in remark:
         services.append('Per Landing')
+
     corrected_services = []
     for service in services:
         if service == 'TECH. SUPT':
@@ -49,6 +57,7 @@ def extract_services(row):
             corrected_services.append('Headset')
         else:
             corrected_services.append(service)
+
     return ', '.join(corrected_services) if corrected_services else None
 
 def categorize(row):
@@ -61,9 +70,10 @@ def categorize(row):
         return '3_CANCELED'
     elif 'ON CALL' in remark:
         return '4_ONCALL_RECORDED'
-    return '5_OTHER'
+    else:
+        return '5_OTHER'
 
-def process_file(uploaded_file):
+def process_file(uploaded_file, template_file):
     df = pd.read_excel(uploaded_file, sheet_name='Daily Operations Report', header=4)
     df.dropna(how='all', inplace=True)
     df.rename(columns=lambda x: x.strip() if isinstance(x, str) else x, inplace=True)
@@ -102,7 +112,7 @@ def process_file(uploaded_file):
                 'Flight No.': row['FLT NO.'],
                 'Registration Code': row['REG'],
                 'Aircraft': row['A/C TYPES'],
-                'Date': pd.to_datetime(row['DATE']).strftime('%m/%d/%Y'),
+                'Date': pd.to_datetime(row['DATE']),
                 'STA.': row['STA.'],
                 'ATA.': row['ATA.'],
                 'STD.': row['STD.'],
@@ -116,47 +126,45 @@ def process_file(uploaded_file):
                 'Remarks': '',
                 'Comments': ''
             })
-        except:
-            continue
+        except Exception:
+            pass
 
-    return pd.DataFrame(result_rows), df['DATE'].iloc[0] if not df.empty else None
+    result_df = pd.DataFrame(result_rows)
 
-uploaded_file = st.file_uploader("📤 Upload Daily Operations Report", type=["xlsx"])
-template_uploaded = st.file_uploader("📥 Upload Excel Template (with formatting)", type=["xlsx"])
+    output = io.BytesIO()
+    template_wb = load_workbook(template_file)
+    ws = template_wb.active
 
-if uploaded_file and template_uploaded:
-    st.success("✅ Files uploaded successfully.")
-    result_df, report_date = process_file(uploaded_file)
-    st.dataframe(result_df)
-
-    # Load template in memory
-    template_io = io.BytesIO(template_uploaded.read())
-    wb = load_workbook(template_io)
-    ws = wb.worksheets[0]
-
-    # Find header row (first non-empty row)
-    header_row_idx = None
-    for i, row in enumerate(ws.iter_rows(min_row=1, max_row=20), start=1):
-        if any(cell.value for cell in row):
-            header_row_idx = i
-            break
-    if not header_row_idx:
-        st.error("❌ Could not find a header row in template.")
-        st.stop()
-    start_row = header_row_idx + 1
-
-    # Write values only (preserve formatting)
+    # Write starting after the header row (assumed row 2)
+    start_row = 2
     for r_idx, row in enumerate(dataframe_to_rows(result_df, index=False, header=False), start=start_row):
         for c_idx, value in enumerate(row, start=1):
-            ws.cell(row=r_idx, column=c_idx).value = value  # value only; do not touch styles
+            cell = ws.cell(row=r_idx, column=c_idx)
+            cell.value = value
+            if isinstance(value, pd.Timestamp):
+                cell.number_format = 'mm/dd/yyyy hh:mm'
 
-    # Save result to new downloadable file
-    output = io.BytesIO()
-    wb.save(output)
+    template_wb.save(output)
     output.seek(0)
 
-    output_name = (
-        pd.to_datetime(report_date).strftime("%d%b%Y").upper() + "_WorkOrders.xlsx"
-        if report_date else "Formatted_WorkOrders.xlsx"
-    )
-    st.download_button("📥 Download Final Work Orders File", data=output, file_name=output_name)
+    report_date = df['DATE'].iloc[0] if not df.empty else None
+    return output, report_date
+
+# Upload files
+uploaded_file = st.file_uploader("Upload Daily Operations Report", type=["xlsx"])
+template_file = st.file_uploader("Upload Work Order Template", type=["xlsx"])
+
+if uploaded_file and template_file:
+    st.success("✅ Files uploaded successfully!")
+    final_output, report_date = process_file(uploaded_file, template_file)
+
+    if report_date is not None:
+        try:
+            date_obj = pd.to_datetime(report_date)
+            filename = date_obj.strftime("%d%b%Y").upper() + "_WorkOrders.xlsx"
+        except Exception:
+            filename = "Final_WorkOrders.xlsx"
+    else:
+        filename = "Final_WorkOrders.xlsx"
+
+    st.download_button("📥 Download Final Work Order File", data=final_output, file_name=filename)
