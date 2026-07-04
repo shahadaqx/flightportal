@@ -57,12 +57,8 @@ def extract_services(row):
     remark = str(row.get('OTHER SERVICES/REMARKS', '')).upper()
     if 'ON CALL - NEEDED ENGINEER SUPPORT' in remark:
         services.append('On Call')
-    elif 'CANCELED WITHOUT INFORMATION' in remark or 'CANCELLED WITHOUT INFORMATION' in remark:
-        services.append('Canceled without notice')
-    elif 'CANCELED WITH INFORMATION' in remark or 'CANCELLED WITH INFORMATION' in remark:
-        services.append('Cancelled Flight')
     elif 'CANCELED' in remark or 'CANCELLED' in remark:
-        # Catch-all for any other cancellation wording not covered above
+        # Any cancellation (with or without info) is simply labeled "Cancelled Flight"
         services.append('Cancelled Flight')
     elif 'ON CALL' in remark:
         services.append('Per Landing')
@@ -181,12 +177,17 @@ def process_file(uploaded_file, template_file):
             cell = ws.cell(row=r_idx, column=c_idx)
             cell.value = value
 
-            # Apply short date format ONLY to 'Date' column (column 7)
+            # Write date/time values as unambiguous ISO 8601 TEXT strings (not native
+            # Excel date cells). This avoids locale-dependent date parsing issues
+            # (e.g. MM/DD vs DD/MM) that can trip up strict portal validators.
             if c_idx == 7 and isinstance(value, (datetime, pd.Timestamp)):
-                cell.value = value.date()  # Remove time part
-                cell.number_format = 'mm/dd/yyyy'
-            elif isinstance(value, pd.Timestamp):
-                cell.number_format = 'mm/dd/yyyy hh:mm'
+                # 'Date' column: date only, e.g. 2026-07-03
+                cell.value = value.strftime('%Y-%m-%d')
+                cell.number_format = '@'  # force text format
+            elif isinstance(value, (datetime, pd.Timestamp)):
+                # STA./ATA./STD./ATD. columns: full date-time, e.g. 2026-07-03 00:15:00
+                cell.value = value.strftime('%Y-%m-%d %H:%M:%S')
+                cell.number_format = '@'  # force text format
 
     template_wb.save(output)
     output.seek(0)
@@ -213,5 +214,5 @@ if uploaded_file and template_file:
         filename = "Final_WorkOrders.xlsx"
 
     st.download_button("📥 Download Final Work Order File", data=final_output, file_name=filename)
-
+    
 
