@@ -166,9 +166,23 @@ def process_file(uploaded_file, template_file):
 
     result_df = pd.DataFrame(result_rows)
 
+    if result_df.empty:
+        st.warning("⚠️ No flight rows were extracted from the uploaded report. "
+                    "The output file will be blank - check that the report matches "
+                    "the expected column layout (header on row 5).")
+
     output = io.BytesIO()
     template_wb = load_workbook(template_file)
-    ws = template_wb.active
+
+    # IMPORTANT: target the 'Template' sheet explicitly by name. Using
+    # template_wb.active is unreliable - it points to whichever tab was
+    # open/selected when the file was last saved (e.g. it could silently
+    # be 'Lookups' instead of 'Template'), which would make the actual
+    # Template sheet appear completely blank.
+    if 'Template' in template_wb.sheetnames:
+        ws = template_wb['Template']
+    else:
+        ws = template_wb.active
 
     # Write starting after the header row (assumed row 2)
     start_row = 2
@@ -214,5 +228,6 @@ if uploaded_file and template_file:
         filename = "Final_WorkOrders.xlsx"
 
     st.download_button("📥 Download Final Work Order File", data=final_output, file_name=filename)
+
     
 
