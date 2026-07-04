@@ -25,6 +25,9 @@ def format_datetime(date, raw_time, base_time=None):
         raw_time_obj = to_time(raw_time)
         base_time_obj = to_time(base_time)
 
+        if raw_time_obj is None:
+            return None
+
         if base_time_obj and base_time_obj >= time(18, 0) and raw_time_obj < time(3, 0):
             base_date += pd.Timedelta(days=1)
 
@@ -32,6 +35,18 @@ def format_datetime(date, raw_time, base_time=None):
         return full_datetime
     except Exception:
         return None
+
+
+def get_customer(x):
+    """Safely derive the customer code from the flight number.
+    Returns None instead of crashing when the value is missing/blank."""
+    if not isinstance(x, str):
+        return None
+    x = x.strip()
+    if x == '' or x.lower() == 'nan':
+        return None
+    return 'XLR' if x.startswith('DHX') else x[:2]
+
 
 def extract_services(row):
     services = []
@@ -42,9 +57,12 @@ def extract_services(row):
     remark = str(row.get('OTHER SERVICES/REMARKS', '')).upper()
     if 'ON CALL - NEEDED ENGINEER SUPPORT' in remark:
         services.append('On Call')
-    elif 'CANCELED WITHOUT NOTICE' in remark or 'CANCELLED WITHOUT NOTICE' in remark:
+    elif 'CANCELED WITHOUT INFORMATION' in remark or 'CANCELLED WITHOUT INFORMATION' in remark:
         services.append('Canceled without notice')
+    elif 'CANCELED WITH INFORMATION' in remark or 'CANCELLED WITH INFORMATION' in remark:
+        services.append('Cancelled Flight')
     elif 'CANCELED' in remark or 'CANCELLED' in remark:
+        # Catch-all for any other cancellation wording not covered above
         services.append('Cancelled Flight')
     elif 'ON CALL' in remark:
         services.append('Per Landing')
@@ -60,22 +78,43 @@ def extract_services(row):
 
     return ', '.join(corrected_services) if corrected_services else None
 
+
 def categorize(row):
     remark = str(row.get('OTHER SERVICES/REMARKS', '')).upper()
     if 'TRANSIT' in remark:
         return '1_TRANSIT'
     elif 'ON CALL - NEEDED ENGINEER SUPPORT' in remark:
         return '2_ONCALL_ENGINEER'
-    elif 'CANCELED WITHOUT NOTICE' in remark or 'CANCELLED WITHOUT NOTICE' in remark:
+    elif ('CANCELED WITHOUT INFORMATION' in remark or 'CANCELLED WITHOUT INFORMATION' in remark
+          or 'CANCELED WITH INFORMATION' in remark or 'CANCELLED WITH INFORMATION' in remark
+          or 'CANCELED' in remark or 'CANCELLED' in remark):
         return '3_CANCELED'
     elif 'ON CALL' in remark:
         return '4_ONCALL_RECORDED'
     else:
         return '5_OTHER'
 
+
+def blank_to_none(x):
+    """Treat whitespace-only cells (stray spaces left in the sheet) as truly empty."""
+    if isinstance(x, str) and x.strip() == '':
+        return None
+    return x
+
+
 def process_file(uploaded_file, template_file):
     df = pd.read_excel(uploaded_file, sheet_name='Daily Operations Report', header=4)
+
+    # Normalize stray whitespace-only cells to real blanks BEFORE checking for empty rows,
+    # so leftover artifact rows (e.g. a single stray space in one cell) get dropped correctly.
+    df = df.map(blank_to_none)
     df.dropna(how='all', inplace=True)
+
+    # Extra safety net: if a row has neither a DATE nor a FLT NO., it isn't a real flight
+    # record (confirmed real cancellations always carry both) - drop it so it can't crash
+    # downstream processing.
+    df.dropna(subset=['DATE', 'FLT NO.'], how='all', inplace=True)
+
     df.rename(columns=lambda x: x.strip() if isinstance(x, str) else x, inplace=True)
     df.rename(columns={
         'REG.': 'REG',
@@ -92,13 +131,13 @@ def process_file(uploaded_file, template_file):
     df['STD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('STD'), row['STA']), axis=1)
     df['ATD.'] = df.apply(lambda row: format_datetime(row['DATE'], row.get('ATD'), row['STA']), axis=1)
 
-    canceled_mask = df['OTHER SERVICES/REMARKS'].str.contains('CANCELED|CANCELLED', case=False, na=False)
+    canceled_mask = df['OTHER SERVICES/REMARKS'].astype(str).str.contains('CANCELED|CANCELLED', case=False, na=False)
     df.loc[canceled_mask, 'ATA.'] = df.loc[canceled_mask, 'STA.']
     df.loc[canceled_mask, 'ATD.'] = df.loc[canceled_mask, 'STD.']
 
-    df['Customer'] = df['FLT NO.'].astype(str).str.strip().apply(lambda x: 'XLR' if x.startswith('DHX') else x[:2])
+    df['Customer'] = df['FLT NO.'].astype(str).str.strip().apply(get_customer)
     df['Services'] = df.apply(extract_services, axis=1)
-    df['Is Canceled'] = df['OTHER SERVICES/REMARKS'].str.contains('CANCELED|CANCELLED', na=False, case=False)
+    df['Is Canceled'] = df['OTHER SERVICES/REMARKS'].astype(str).str.contains('CANCELED|CANCELLED', na=False, case=False)
     df['Category'] = df.apply(categorize, axis=1)
     df.sort_values(by=['Category', 'STA.'], inplace=True)
 
@@ -155,6 +194,7 @@ def process_file(uploaded_file, template_file):
     report_date = df['DATE'].iloc[0] if not df.empty else None
     return output, report_date
 
+
 # Upload files
 uploaded_file = st.file_uploader("Upload Daily Operations Report", type=["xlsx"])
 template_file = st.file_uploader("Upload Work Order Template", type=["xlsx"])
@@ -173,3 +213,5 @@ if uploaded_file and template_file:
         filename = "Final_WorkOrders.xlsx"
 
     st.download_button("📥 Download Final Work Order File", data=final_output, file_name=filename)
+
+
