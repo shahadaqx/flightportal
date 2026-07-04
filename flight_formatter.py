@@ -217,18 +217,19 @@ def process_file(uploaded_file, template_file):
             cell = ws.cell(row=r_idx, column=c_idx)
             cell.value = value
 
-            # Write real Excel date/date-time values (not text) using an unambiguous
-            # ISO-style display format (yyyy-mm-dd), so the cell is a genuine date
-            # type - matching how a manually-typed date would be stored - while
-            # avoiding MM/DD vs DD/MM ambiguity in how it's displayed.
+            # Match the EXACT format confirmed to be accepted by the portal
+            # (verified against a manually-filled file the portal approved):
+            #   - Date column: real datetime, format 'mm-dd-yy'
+            #   - STA./ATA./STD./ATD.: real datetime, format 'm/d/yy h:mm'
             if c_idx == 7 and isinstance(value, (datetime, pd.Timestamp)):
-                # 'Date' column: date only
-                cell.value = value.date() if hasattr(value, 'date') else value
-                cell.number_format = 'yyyy-mm-dd'
+                cell.value = value if isinstance(value, datetime) else value.to_pydatetime()
+                cell.number_format = 'mm-dd-yy'
             elif isinstance(value, (datetime, pd.Timestamp)):
-                # STA./ATA./STD./ATD. columns: full date-time
-                cell.value = value
-                cell.number_format = 'yyyy-mm-dd hh:mm:ss'
+                cell.value = value if isinstance(value, datetime) else value.to_pydatetime()
+                cell.number_format = 'm/d/yy h:mm'
+            elif c_idx in (13, 14):
+                # Services / Employees columns: force text format to match accepted file
+                cell.number_format = '@'
 
     template_wb.save(output)
     output.seek(0)
