@@ -98,8 +98,34 @@ def blank_to_none(x):
     return x
 
 
+def find_report_sheet(uploaded_file, expected_name='Daily Operations Report'):
+    """Find the correct sheet to read, tolerating case/whitespace differences
+    in the sheet name (e.g. 'daily operations report ', 'DAILY OPERATIONS REPORT').
+    Falls back to the first sheet if no reasonable match is found, and warns
+    the user either way so this never fails silently."""
+    xl = pd.ExcelFile(uploaded_file)
+    sheet_names = xl.sheet_names
+
+    for name in sheet_names:
+        if name.strip().lower() == expected_name.strip().lower():
+            return name, sheet_names
+
+    # No exact (case/whitespace-insensitive) match - try a loose "contains" match
+    for name in sheet_names:
+        if 'daily operations' in name.strip().lower():
+            st.warning(f"⚠️ Sheet named exactly '{expected_name}' not found. "
+                       f"Using closest match: '{name}'.")
+            return name, sheet_names
+
+    # Still nothing - fall back to the first sheet so the app doesn't crash outright
+    st.warning(f"⚠️ Could not find a sheet named '{expected_name}' in the uploaded file. "
+               f"Available sheets: {sheet_names}. Falling back to the first sheet: '{sheet_names[0]}'.")
+    return sheet_names[0], sheet_names
+
+
 def process_file(uploaded_file, template_file):
-    df = pd.read_excel(uploaded_file, sheet_name='Daily Operations Report', header=4)
+    sheet_name, available_sheets = find_report_sheet(uploaded_file)
+    df = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=4)
 
     # Normalize stray whitespace-only cells to real blanks BEFORE checking for empty rows,
     # so leftover artifact rows (e.g. a single stray space in one cell) get dropped correctly.
@@ -191,17 +217,18 @@ def process_file(uploaded_file, template_file):
             cell = ws.cell(row=r_idx, column=c_idx)
             cell.value = value
 
-            # Write date/time values as unambiguous ISO 8601 TEXT strings (not native
-            # Excel date cells). This avoids locale-dependent date parsing issues
-            # (e.g. MM/DD vs DD/MM) that can trip up strict portal validators.
+            # Write real Excel date/date-time values (not text) using an unambiguous
+            # ISO-style display format (yyyy-mm-dd), so the cell is a genuine date
+            # type - matching how a manually-typed date would be stored - while
+            # avoiding MM/DD vs DD/MM ambiguity in how it's displayed.
             if c_idx == 7 and isinstance(value, (datetime, pd.Timestamp)):
-                # 'Date' column: date only, e.g. 2026-07-03
-                cell.value = value.strftime('%Y-%m-%d')
-                cell.number_format = '@'  # force text format
+                # 'Date' column: date only
+                cell.value = value.date() if hasattr(value, 'date') else value
+                cell.number_format = 'yyyy-mm-dd'
             elif isinstance(value, (datetime, pd.Timestamp)):
-                # STA./ATA./STD./ATD. columns: full date-time, e.g. 2026-07-03 00:15:00
-                cell.value = value.strftime('%Y-%m-%d %H:%M:%S')
-                cell.number_format = '@'  # force text format
+                # STA./ATA./STD./ATD. columns: full date-time
+                cell.value = value
+                cell.number_format = 'yyyy-mm-dd hh:mm:ss'
 
     template_wb.save(output)
     output.seek(0)
@@ -228,6 +255,9 @@ if uploaded_file and template_file:
         filename = "Final_WorkOrders.xlsx"
 
     st.download_button("📥 Download Final Work Order File", data=final_output, file_name=filename)
+
+
+    
 
     
 
